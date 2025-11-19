@@ -47,3 +47,33 @@
 .abcjs-css-warning {
   display: none;
 }
+
+/* Playback control buttons */
+.abcjs-controls {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: 8px;
+  margin-top: 8px;
+  position: relative;
+  z-index: 10;
+  width: fit-content;
+}
+
+.abcjs-controls button {
+  padding: 6px 12px;
+  cursor: pointer;
+  background-color: var(--interactive-normal);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-small);
+  pointer-events: auto;
+}
+
+.abcjs-controls button:hover {
+  background-color: var(--interactive-hover);
+}
+
+.abcjs-controls button:active {
+  background-color: var(--interactive-accent);
+}

@@ -10,6 +10,8 @@ import { NoteHighlighter, togglePlayingHighlight } from './note_highlighter';
  * https://marcus.se.net/obsidian-plugin-docs/reference/typescript/interfaces/MarkdownPostProcessorContext#addchild
  */
 export class PlaybackElement extends MarkdownRenderChild {
+  private playPauseButton: HTMLButtonElement;
+  private isPlaying: boolean = false;
   private readonly abortController = new AbortController();
   private readonly midiBuffer: MidiBuffer = new synth.CreateSynth();
   private readonly synthCtrl = new synth.SynthController();
@@ -25,6 +27,7 @@ export class PlaybackElement extends MarkdownRenderChild {
     const { userOptions, source } = this.parseOptionsAndSource();
     const options = { ...DEFAULT_OPTIONS, ...userOptions };
     const renderResp = renderAbc(this.el, source, options);
+    this.addPlaybackButtons();
     this.enableAudioPlayback(renderResp[0]);
   }
 
@@ -105,21 +108,40 @@ export class PlaybackElement extends MarkdownRenderChild {
   this.midiBuffer.init({ visualObj, options: SYNTH_INIT_OPTIONS })
     .then(() => this.synthCtrl.setTune(visualObj, false, finalAudioParams))
     .catch(console.warn.bind(console));
-
-  const signal = this.abortController.signal;
-  this.el.addEventListener('click', this.togglePlayback, { signal });
-  this.el.addEventListener('dblclick', this.restartPlayback, { signal });
 }
 
+  private addPlaybackButtons() {
+    const buttonContainer = this.el.createDiv({ cls: 'abcjs-controls' });
+
+    this.playPauseButton = buttonContainer.createEl('button');
+    this.playPauseButton.innerHTML = '▶';
+    this.playPauseButton.setAttribute('aria-label', 'Play');
+    this.playPauseButton.addEventListener('click', this.togglePlayback);
+
+    const restartButton = buttonContainer.createEl('button');
+    restartButton.innerHTML = '⏮';
+    restartButton.setAttribute('aria-label', 'Restart');
+    restartButton.addEventListener('click', this.restartPlayback);
+  }
+
   private readonly togglePlayback = () => {
-    // private access. Can improve when https://github.com/paulrosen/abcjs/pull/917 merges
-    const isPlaying = (this.midiBuffer as any)?.isRunning;
-    isPlaying ? this.synthCtrl.pause() : this.synthCtrl.play();
-    togglePlayingHighlight(this.el)(isPlaying);
+    const isCurrentlyPlaying = (this.midiBuffer as any)?.isRunning;
+    
+    if (isCurrentlyPlaying) {
+      this.synthCtrl.pause();
+      this.isPlaying = false;
+      togglePlayingHighlight(this.el)(false);
+    } else {
+      this.synthCtrl.play();
+      this.isPlaying = true;
+      togglePlayingHighlight(this.el)(true);
+    }
   };
 
   // start again at the begining of the tune
   private readonly restartPlayback = () => {
     this.synthCtrl.restart();
+    this.isPlaying = false;
+    togglePlayingHighlight(this.el)(false);
   };
 }
