@@ -157,10 +157,13 @@ export class PlaybackElement extends MarkdownRenderChild {
         // Check if loop is enabled and we need to loop back
         if (!this.loopEnabled || !this.loopStartInput || !this.loopEndInput) return;
         
-        const loopStart = parseInt(this.loopStartInput.value);
+        let loopStart = parseInt(this.loopStartInput.value);
         const loopEnd = parseInt(this.loopEndInput.value);
         
         if (isNaN(loopStart) || isNaN(loopEnd) || loopStart < 1 || loopEnd < loopStart) return;
+        
+        // Subtract 1 from user's LS input
+        loopStart = loopStart - 1;
         
         // Adjust loop values: user inputs measure numbers, we need to subtract 1
         // So if user wants to loop measures 2-3, we calculate as if they entered 1-2
@@ -589,10 +592,13 @@ export class PlaybackElement extends MarkdownRenderChild {
           // Check if loop is enabled and we need to loop back
           if (!this.loopEnabled || !this.loopStartInput || !this.loopEndInput) return;
           
-          const loopStart = parseInt(this.loopStartInput.value);
+          let loopStart = parseInt(this.loopStartInput.value);
           const loopEnd = parseInt(this.loopEndInput.value);
           
           if (isNaN(loopStart) || isNaN(loopEnd) || loopStart < 1 || loopEnd < loopStart) return;
+          
+          // Subtract 1 from user's LS input
+          loopStart = loopStart - 1;
           
           // Adjust loop values: user inputs measure numbers, we need to subtract 1
           // So if user wants to loop measures 2-3, we calculate as if they entered 1-2
