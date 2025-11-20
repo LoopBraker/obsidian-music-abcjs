@@ -162,16 +162,21 @@ export class PlaybackElement extends MarkdownRenderChild {
         
         if (isNaN(loopStart) || isNaN(loopEnd) || loopStart < 1 || loopEnd < loopStart) return;
         
-        // Calculate the beat number for loop end
-        const loopEndBeat = loopEnd * this.beatsPerMeasure;
+        // Adjust loop values: user inputs measure numbers, we need to subtract 1
+        // So if user wants to loop measures 2-3, we calculate as if they entered 1-2
+        const adjustedLoopStart = loopStart - 1;
+        const adjustedLoopEnd = loopEnd - 1;
         
-        // If we've reached or passed the loop end, jump back to loop start
+        // Calculate the beat number for loop end
+        const loopEndBeat = (adjustedLoopEnd + 1) * this.beatsPerMeasure;
+        
+        // If we've reached the end of the LE measure, jump back to loop start
         if (beatNumber >= loopEndBeat) {
-          const loopStartBeat = (loopStart - 1) * this.beatsPerMeasure;
           const totalTimeMs = (this.visualObj?.getTotalTime() || 0) * 1000;
           
           if (totalTimeMs > 0 && this.timingCallbacks && this.timingCallbacks.noteTimings) {
-            // Find the timing for the loop start beat
+            // Find the timing for the first note/event in the loop start measure
+            // Use the original loopStart (user's measure number)
             const startTiming = this.timingCallbacks.noteTimings.find(
               timing => timing.measureStart && timing.measureNumber === loopStart
             );
@@ -589,16 +594,21 @@ export class PlaybackElement extends MarkdownRenderChild {
           
           if (isNaN(loopStart) || isNaN(loopEnd) || loopStart < 1 || loopEnd < loopStart) return;
           
-          // Calculate the beat number for loop end
-          const loopEndBeat = loopEnd * this.beatsPerMeasure;
+          // Adjust loop values: user inputs measure numbers, we need to subtract 1
+          // So if user wants to loop measures 2-3, we calculate as if they entered 1-2
+          const adjustedLoopStart = loopStart - 1;
+          const adjustedLoopEnd = loopEnd - 1;
           
-          // If we've reached or passed the loop end, jump back to loop start
+          // Calculate the beat number for loop end
+          const loopEndBeat = (adjustedLoopEnd + 1) * this.beatsPerMeasure;
+          
+          // If we've reached the end of the LE measure, jump back to loop start
           if (beatNumber >= loopEndBeat) {
-            const loopStartBeat = (loopStart - 1) * this.beatsPerMeasure;
             const totalTimeMs = (this.visualObj?.getTotalTime() || 0) * 1000;
             
             if (totalTimeMs > 0 && this.timingCallbacks && this.timingCallbacks.noteTimings) {
-              // Find the timing for the loop start beat
+              // Find the timing for the first note/event in the loop start measure
+              // Use the original loopStart (user's measure number)
               const startTiming = this.timingCallbacks.noteTimings.find(
                 timing => timing.measureStart && timing.measureNumber === loopStart
               );
