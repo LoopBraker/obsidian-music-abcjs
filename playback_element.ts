@@ -1,4 +1,4 @@
-import { MidiBuffer, TuneObject, renderAbc, synth, SynthOptions } from 'abcjs';
+import { MidiBuffer, TuneObject, renderAbc, synth, SynthOptions, TimingCallbacks, AnimationOptions } from 'abcjs';
 import { MarkdownRenderChild, MarkdownPostProcessorContext } from 'obsidian';
 import { AUDIO_PARAMS, DEFAULT_OPTIONS, OPTIONS_REGEX, PLAYBACK_CONTROLS_ID, SYNTH_INIT_OPTIONS } from './cfg';
 import { NoteHighlighter, togglePlayingHighlight } from './note_highlighter';
@@ -15,9 +15,18 @@ export class PlaybackElement extends MarkdownRenderChild {
   private draggingCheckbox: HTMLInputElement;
   private isPlaying: boolean = false;
   private draggingEnabled: boolean = false;
+
+  private beatsPerMeasure: number = 4;
+  private totalBeats: number = 0;
   private readonly abortController = new AbortController();
   private readonly midiBuffer: MidiBuffer = new synth.CreateSynth();
-  private readonly synthCtrl = new synth.SynthController();
+
+  // CHANGE: Removed the SynthController
+  // private readonly synthCtrl = new synth.SynthController();
+
+  // CHANGE: Add a direct reference to TimingCallbacks
+  private timingCallbacks: TimingCallbacks | null = null;
+
   private visualObj: TuneObject | null = null;
   private noteEditor: NoteEditor;
 
@@ -44,8 +53,16 @@ export class PlaybackElement extends MarkdownRenderChild {
     };
     const renderResp = renderAbc(this.el, source, options);
     this.visualObj = renderResp[0];
+    
+    // Extract tune metrics
+    if (this.visualObj) {
+      this.beatsPerMeasure = this.visualObj.getBeatsPerMeasure();
+      this.totalBeats = this.visualObj.getTotalBeats();
+    }
+    
     this.addPlaybackButtons();
-    this.enableAudioPlayback(renderResp[0]);
+    this.addDraggingToggle();
+    this.enableAudioPlayback(this.visualObj);
   }
 
   /**
@@ -61,10 +78,9 @@ export class PlaybackElement extends MarkdownRenderChild {
   onunload() {
     this.abortController.abort(); // dom event listeners
 
-    // A lot of steps, but I think all these things need to happen to really stop in-progress audio playback for ABCjs.
-    this.synthCtrl.restart();
-    this.synthCtrl.pause();
-    this.midiBuffer.stop(); // doesn't stop the music by itself?
+    // CHANGE: Stop our own components directly
+    this.timingCallbacks?.stop();
+    this.midiBuffer.stop();
   }
 
   parseOptionsAndSource(): { userOptions: Record<string, any>, source: string } {
@@ -94,38 +110,69 @@ export class PlaybackElement extends MarkdownRenderChild {
     this.el.appendChild(errorNode);
   }
 
-  // Audio playback features
-  // Many variants, options, and guidance here: https://paulrosen.github.io/abcjs/audio/synthesized-sound.html
+  // CHANGE: Major rewrite of this method to follow the vanilla JS example
   enableAudioPlayback(visualObj: TuneObject) {
-  if (!synth.supportsAudio()) return;
+    if (!synth.supportsAudio() || !visualObj) return;
 
-  // Extract user options (already done in onload via parseOptionsAndSource)
-  const { userOptions } = this.parseOptionsAndSource();
+    const { userOptions } = this.parseOptionsAndSource();
+    const audioParamsFromUser: Record<string, any> = {};
+    const knownAudioKeys = ['swing', 'chordsOff'];
 
-  // Separate visual vs audio options? (Optional)
-  // For now, assume any unknown options are for audio/synth
-  const audioParamsFromUser: Record<string, any> = {};
-  const knownAudioKeys = ['swing', 'chordsOff']; // add others as needed
-
-  for (const key of knownAudioKeys) {
-    if (userOptions.hasOwnProperty(key)) {
-      audioParamsFromUser[key] = userOptions[key];
+    for (const key of knownAudioKeys) {
+      if (userOptions.hasOwnProperty(key)) {
+        audioParamsFromUser[key] = userOptions[key];
+      }
     }
+
+    const finalAudioParams: SynthOptions = { ...AUDIO_PARAMS, ...audioParamsFromUser, ...SYNTH_INIT_OPTIONS };
+
+    // Define the animation options with callbacks
+    const animationOptions: AnimationOptions = {
+      eventCallback: (event: any) => {
+        if (event && event.measureStart && event.left === null) return undefined;
+        
+        const selected = Array.from(this.el.querySelectorAll(".abcjs-highlight"));
+        selected.forEach(el => el.classList.remove("abcjs-highlight"));
+        
+        if (event && event.elements) {
+          event.elements.flat().forEach((el: Element) => el.classList.add("abcjs-highlight"));
+        }
+        return undefined;
+      },
+      beatCallback: (beatNumber: number, totalBeats: number, totalTime: number) => {
+        // Beat callback for potential future use
+      }
+    };
+
+    // Create our own TimingCallbacks instance with callbacks in options
+    this.timingCallbacks = new TimingCallbacks(visualObj, animationOptions);
+
+    // Initialize the synth and prime it (pre-generates audio)
+    this.midiBuffer.init({ visualObj, options: finalAudioParams })
+      .then(() => {
+        // priming is necessary to start playback.
+        // It's an async call, so we need to wait for it to finish.
+        return this.midiBuffer.prime();
+      })
+      .then(() => {
+        console.log("Audio is primed and ready to play.");
+        // Set up onFinished handler for midiBuffer
+        // Note: This runs when the tune finishes naturally
+        const checkFinished = () => {
+          if (!this.midiBuffer.getIsRunning() && this.isPlaying) {
+            this.isPlaying = false;
+            this.playPauseButton.innerHTML = '▶';
+            this.playPauseButton.setAttribute('aria-label', 'Play');
+            togglePlayingHighlight(this.el)(false);
+          }
+        };
+        // We'll check periodically since there's no direct onFinished callback
+        // This is a workaround - the TimingCallbacks handles visual, midiBuffer handles audio
+      })
+      .catch((error) => {
+        console.warn("Audio initialization failed:", error);
+      });
   }
-
-  // Merge: defaults (from cfg) <- user overrides
-  const finalAudioParams: SynthOptions = { ...AUDIO_PARAMS, ...audioParamsFromUser };
-
-  // We need the SynthController to drive NoteHighlighter (CursorControl)
-  this.synthCtrl.load(
-    `#${PLAYBACK_CONTROLS_ID}`,
-    new NoteHighlighter(this.el),
-  );
-
-  this.midiBuffer.init({ visualObj, options: SYNTH_INIT_OPTIONS })
-    .then(() => this.synthCtrl.setTune(visualObj, false, finalAudioParams))
-    .catch(console.warn.bind(console));
-}
 
   private addPlaybackButtons() {
     const buttonContainer = this.el.createDiv({ cls: 'abcjs-controls' });
@@ -139,21 +186,21 @@ export class PlaybackElement extends MarkdownRenderChild {
     restartButton.innerHTML = '⏮';
     restartButton.setAttribute('aria-label', 'Restart');
     restartButton.addEventListener('click', this.restartPlayback);
-
-    this.addDraggingToggle();
   }
 
   private addDraggingToggle() {
-    const toggleContainer = this.el.createDiv({ cls: 'abcjs-drag-toggle' });
+    const toggleContainer = this.el.createDiv({ cls: 'abcjs-bottom-controls' });
     
-    this.draggingCheckbox = toggleContainer.createEl('input', { type: 'checkbox' });
+    // Dragging checkbox
+    const dragContainer = toggleContainer.createDiv({ cls: 'control-group' });
+    this.draggingCheckbox = dragContainer.createEl('input', { type: 'checkbox' });
     this.draggingCheckbox.id = `drag-toggle-${Math.random().toString(36).substr(2, 9)}`;
-    this.draggingCheckbox.checked = this.draggingEnabled; // Set initial state from source
+    this.draggingCheckbox.checked = this.draggingEnabled;
     this.draggingCheckbox.addEventListener('change', this.toggleDragging);
     
-    const label = toggleContainer.createEl('label');
-    label.setAttribute('for', this.draggingCheckbox.id);
-    label.setText('Enable dragging');
+    const dragLabel = dragContainer.createEl('label');
+    dragLabel.setAttribute('for', this.draggingCheckbox.id);
+    dragLabel.setText('Enable dragging');
   }
 
   private readonly toggleDragging = async () => {
@@ -189,25 +236,39 @@ export class PlaybackElement extends MarkdownRenderChild {
     this.reRender();
   };
 
+  // CHANGE: Updated playback controls to manage components directly
   private readonly togglePlayback = () => {
-    const isCurrentlyPlaying = (this.midiBuffer as any)?.isRunning;
-    
-    if (isCurrentlyPlaying) {
-      this.synthCtrl.pause();
-      this.isPlaying = false;
+    // We need an AudioContext to be created by user action
+    synth.activeAudioContext()?.resume();
+
+    if (this.isPlaying) {
+      this.midiBuffer.pause();
+      this.timingCallbacks?.pause();
+      this.playPauseButton.innerHTML = '▶';
+      this.playPauseButton.setAttribute('aria-label', 'Play');
       togglePlayingHighlight(this.el)(false);
     } else {
-      this.synthCtrl.play();
-      this.isPlaying = true;
+      this.midiBuffer.start();
+      this.timingCallbacks?.start();
+      this.playPauseButton.innerHTML = '❚❚';
+      this.playPauseButton.setAttribute('aria-label', 'Pause');
       togglePlayingHighlight(this.el)(true);
     }
+    this.isPlaying = !this.isPlaying;
   };
 
   // start again at the begining of the tune
   private readonly restartPlayback = () => {
-    this.synthCtrl.restart();
-    this.isPlaying = false;
-    togglePlayingHighlight(this.el)(false);
+    this.timingCallbacks?.stop();
+    this.midiBuffer.stop();
+    // After stopping, we can immediately start again for a seamless restart
+    if (this.isPlaying) {
+        this.timingCallbacks?.start();
+        this.midiBuffer.start();
+    } else {
+        // If it was paused, just reset the cursor to the beginning
+        this.timingCallbacks?.reset();
+    }
   };
 
   private readonly handleElementClick = async (abcElem: any, tuneNumber: number, classes: string, analysis: any, drag: any) => {
@@ -310,6 +371,12 @@ export class PlaybackElement extends MarkdownRenderChild {
     
     this.visualObj = renderResp[0];
     
+    // Re-extract tune metrics
+    if (this.visualObj) {
+      this.beatsPerMeasure = this.visualObj.getBeatsPerMeasure();
+      this.totalBeats = this.visualObj.getTotalBeats();
+    }
+    
     // Update audio
     if (this.visualObj) {
       const { userOptions } = this.parseOptionsAndSource();
@@ -323,8 +390,30 @@ export class PlaybackElement extends MarkdownRenderChild {
       }
       
       const finalAudioParams: SynthOptions = { ...AUDIO_PARAMS, ...audioParamsFromUser };
-      this.midiBuffer.init({ visualObj: this.visualObj, options: SYNTH_INIT_OPTIONS })
-        .then(() => this.synthCtrl.setTune(this.visualObj!, false, finalAudioParams))
+      // Create animation options for the new visual object
+      const animationOptions: AnimationOptions = {
+        eventCallback: (event: any) => {
+          if (event && event.measureStart && event.left === null) return undefined;
+          
+          const selected = Array.from(this.el.querySelectorAll(".abcjs-highlight"));
+          selected.forEach(el => el.classList.remove("abcjs-highlight"));
+          
+          if (event && event.elements) {
+            event.elements.flat().forEach((el: Element) => el.classList.add("abcjs-highlight"));
+          }
+          return undefined;
+        },
+        beatCallback: (beatNumber: number, totalBeats: number, totalTime: number) => {
+          // Beat callback for potential future use
+        }
+      };
+      
+      this.midiBuffer.init({ visualObj: this.visualObj, options: finalAudioParams })
+        .then(() => {
+            // Re-initialize timing callbacks with the new visual object
+            this.timingCallbacks = new TimingCallbacks(this.visualObj!, animationOptions);
+            return this.midiBuffer.prime();
+        })
         .catch(console.warn.bind(console));
     }
   }

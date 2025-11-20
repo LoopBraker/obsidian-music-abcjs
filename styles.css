@@ -78,14 +78,14 @@
   background-color: var(--interactive-accent);
 }
 
-/* Dragging toggle checkbox */
-.abcjs-drag-toggle {
+/* Bottom controls (dragging + loop) */
+.abcjs-bottom-controls {
   position: absolute;
   left: 8px;
   bottom: 8px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
   font-size: var(--font-ui-small);
   color: var(--text-muted);
   z-index: 10;
@@ -95,13 +95,37 @@
   border: 1px solid var(--background-modifier-border);
 }
 
-.abcjs-drag-toggle input[type="checkbox"] {
+.abcjs-bottom-controls .control-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.abcjs-bottom-controls input[type="checkbox"] {
   cursor: pointer;
   margin: 0;
 }
 
-.abcjs-drag-toggle label {
+.abcjs-bottom-controls input[type="number"] {
+  width: 50px;
+  padding: 2px 4px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+}
+
+.abcjs-bottom-controls input[type="number"].loop-active {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+  font-weight: bold;
+}
+
+.abcjs-bottom-controls label {
   cursor: pointer;
   user-select: none;
   margin: 0;
+  white-space: nowrap;
 }
