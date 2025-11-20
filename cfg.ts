@@ -8,7 +8,11 @@ export const OPTIONS_REGEX = new RegExp(/(?<options>{.*})\n---\n(?<source>.*)/s)
 
 export const DEFAULT_OPTIONS: AbcVisualParams = {
   add_classes: true,
-  responsive: 'resize'
+  responsive: 'resize',
+  dragging: true,
+  selectTypes: ['note'],
+  selectionColor: 'red',
+  dragColor: 'rgba(0, 200, 100, 0.5)'
 };
 
 export const AUDIO_PARAMS: SynthOptions = {

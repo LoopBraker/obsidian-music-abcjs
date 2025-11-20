@@ -19,6 +19,6 @@ export default class MusicPlugin extends Plugin {
 	}
 
 	async codeProcessor(source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) {
-		ctx.addChild(new PlaybackElement(el, source));
+		ctx.addChild(new PlaybackElement(el, source, ctx));
 	}
 }
