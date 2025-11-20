@@ -77,3 +77,31 @@
 .abcjs-controls button:active {
   background-color: var(--interactive-accent);
 }
+
+/* Dragging toggle checkbox */
+.abcjs-drag-toggle {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  z-index: 10;
+  background-color: var(--background-primary);
+  padding: 4px 8px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.abcjs-drag-toggle input[type="checkbox"] {
+  cursor: pointer;
+  margin: 0;
+}
+
+.abcjs-drag-toggle label {
+  cursor: pointer;
+  user-select: none;
+  margin: 0;
+}

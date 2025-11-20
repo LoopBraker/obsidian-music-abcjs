@@ -12,7 +12,9 @@ import { NoteEditor } from './note_editor';
  */
 export class PlaybackElement extends MarkdownRenderChild {
   private playPauseButton: HTMLButtonElement;
+  private draggingCheckbox: HTMLInputElement;
   private isPlaying: boolean = false;
+  private draggingEnabled: boolean = false;
   private readonly abortController = new AbortController();
   private readonly midiBuffer: MidiBuffer = new synth.CreateSynth();
   private readonly synthCtrl = new synth.SynthController();
@@ -33,6 +35,7 @@ export class PlaybackElement extends MarkdownRenderChild {
     const options = { 
       ...DEFAULT_OPTIONS, 
       ...userOptions,
+      dragging: this.draggingEnabled,
       clickListener: this.handleElementClick
     };
     const renderResp = renderAbc(this.el, source, options);
@@ -132,7 +135,26 @@ export class PlaybackElement extends MarkdownRenderChild {
     restartButton.innerHTML = '⏮';
     restartButton.setAttribute('aria-label', 'Restart');
     restartButton.addEventListener('click', this.restartPlayback);
+
+    this.addDraggingToggle();
   }
+
+  private addDraggingToggle() {
+    const toggleContainer = this.el.createDiv({ cls: 'abcjs-drag-toggle' });
+    
+    this.draggingCheckbox = toggleContainer.createEl('input', { type: 'checkbox' });
+    this.draggingCheckbox.id = `drag-toggle-${Math.random().toString(36).substr(2, 9)}`;
+    this.draggingCheckbox.addEventListener('change', this.toggleDragging);
+    
+    const label = toggleContainer.createEl('label');
+    label.setAttribute('for', this.draggingCheckbox.id);
+    label.setText('Enable dragging');
+  }
+
+  private readonly toggleDragging = () => {
+    this.draggingEnabled = this.draggingCheckbox.checked;
+    this.reRender();
+  };
 
   private readonly togglePlayback = () => {
     const isCurrentlyPlaying = (this.midiBuffer as any)?.isRunning;
@@ -170,15 +192,32 @@ export class PlaybackElement extends MarkdownRenderChild {
     const options = { 
       ...DEFAULT_OPTIONS, 
       ...userOptions,
+      dragging: this.draggingEnabled,
       clickListener: this.handleElementClick
     };
     
-    // Clear existing SVG
+    // Clear existing SVG only (preserve buttons and checkbox)
     const svg = this.el.querySelector('svg');
     if (svg) svg.remove();
     
-    // Re-render with updated source
-    const renderResp = renderAbc(this.el, abcSource, options);
+    // Find where to insert the new SVG (before the buttons container)
+    const buttonsContainer = this.el.querySelector('.abcjs-controls');
+    
+    // Create a temporary container for rendering
+    const tempDiv = document.createElement('div');
+    const renderResp = renderAbc(tempDiv, abcSource, options);
+    
+    // Move the SVG to the correct position
+    const newSvg = tempDiv.querySelector('svg');
+    if (newSvg && buttonsContainer) {
+      this.el.insertBefore(newSvg, buttonsContainer);
+    }
+    
+    // Restore checkbox state after render
+    if (this.draggingCheckbox) {
+      this.draggingCheckbox.checked = this.draggingEnabled;
+    }
+    
     this.visualObj = renderResp[0];
     
     // Update audio
