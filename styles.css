@@ -44,6 +44,16 @@
   cursor: pointer;
 }
 
+/* Style for editor-selected notes (from text selection) */
+.abcjs-editor-selected path {
+  fill: var(--color-cyan) !important;
+  opacity: 0.8;
+}
+
+.abcjs-editor-selected {
+  cursor: pointer;
+}
+
 /* Highlight the region when audio is playing */
 .cm-embed-block.is-playing,
 .cm-embed-block.is-playing:focus-within {

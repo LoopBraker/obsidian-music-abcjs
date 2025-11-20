@@ -331,9 +331,14 @@ export class PlaybackElement extends MarkdownRenderChild {
       view.setContent(
         this.noteEditor.getSource(),
         async (newSource: string) => {
+          // Live update: save and re-render
           this.noteEditor.setSource(newSource);
           await this.updateFileWithSource(newSource);
           this.reRender();
+        },
+        (startChar: number, endChar: number) => {
+          // Selection in editor: highlight notes in sheet
+          this.highlightNotesInRange(startChar, endChar);
         }
       );
       
@@ -341,6 +346,36 @@ export class PlaybackElement extends MarkdownRenderChild {
       app.workspace.revealLeaf(leaves2[0]);
     }
   };
+
+  private highlightNotesInRange(startChar: number, endChar: number): void {
+    // Clear previous highlights
+    const previousHighlights = this.el.querySelectorAll('.abcjs-editor-selected');
+    previousHighlights.forEach(el => el.classList.remove('abcjs-editor-selected'));
+
+    // Find all elements in the range
+    if (!this.visualObj || !this.visualObj.lines) return;
+
+    for (const line of this.visualObj.lines) {
+      for (const staff of line.staff) {
+        for (const voice of staff.voices) {
+          for (const element of voice) {
+            const elem = element as any;
+            if (elem.abselem && elem.startChar !== undefined && elem.endChar !== undefined) {
+              // Check if element overlaps with selection
+              if (elem.startChar < endChar && elem.endChar > startChar) {
+                // Highlight this element
+                if (elem.abselem.elemset) {
+                  elem.abselem.elemset.forEach((svgEl: SVGElement) => {
+                    svgEl.classList.add('abcjs-editor-selected');
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 
   private readonly toggleDragging = async () => {
     this.draggingEnabled = this.draggingCheckbox.checked;
@@ -457,6 +492,16 @@ export class PlaybackElement extends MarkdownRenderChild {
     // Handle note selection for playback (only when not playing)
     if (!this.isPlaying && abcElem && (abcElem.el_type === 'note' || abcElem.el_type === 'rest')) {
       console.log('Clicked element:', abcElem.el_type, 'at startChar:', abcElem.startChar);
+      
+      // Highlight corresponding text in editor if open
+      if (abcElem.startChar !== undefined && abcElem.endChar !== undefined) {
+        const app = (window as any).app as App;
+        const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+        if (leaves.length > 0) {
+          const view = leaves[0].view as AbcEditorView;
+          view.highlightRange(abcElem.startChar, abcElem.endChar);
+        }
+      }
       
       // Get timing information from the visualObj
       if (!this.visualObj) {

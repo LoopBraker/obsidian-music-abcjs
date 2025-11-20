@@ -4,8 +4,10 @@ export const ABC_EDITOR_VIEW_TYPE = 'abc-music-editor';
 
 export class AbcEditorView extends ItemView {
   private textarea: HTMLTextAreaElement;
-  private onSave: ((content: string) => void) | null = null;
+  private onChange: ((content: string) => void) | null = null;
+  private onSelectionChange: ((startChar: number, endChar: number) => void) | null = null;
   private currentContent: string = '';
+  private updateTimeout: NodeJS.Timeout | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -36,30 +38,60 @@ export class AbcEditorView extends ItemView {
     this.textarea.setAttribute('spellcheck', 'false');
     this.textarea.setAttribute('placeholder', 'Edit your ABC music notation here...');
 
-    const buttonContainer = container.createDiv({ cls: 'abc-editor-view-buttons' });
-    
-    const saveButton = buttonContainer.createEl('button', { text: 'Apply Changes', cls: 'mod-cta' });
-    saveButton.addEventListener('click', () => {
-      if (this.onSave) {
-        this.onSave(this.textarea.value);
+    // Real-time input handler with debounce
+    this.textarea.addEventListener('input', () => {
+      if (this.updateTimeout) {
+        clearTimeout(this.updateTimeout);
+      }
+      
+      this.updateTimeout = setTimeout(() => {
+        if (this.onChange) {
+          this.onChange(this.textarea.value);
+        }
+      }, 300); // 300ms debounce for smooth typing
+    });
+
+    // Selection change handler
+    this.textarea.addEventListener('select', () => {
+      if (this.onSelectionChange) {
+        const start = this.textarea.selectionStart;
+        const end = this.textarea.selectionEnd;
+        this.onSelectionChange(start, end);
+      }
+    });
+
+    this.textarea.addEventListener('click', () => {
+      if (this.onSelectionChange) {
+        const start = this.textarea.selectionStart;
+        const end = this.textarea.selectionEnd;
+        this.onSelectionChange(start, end);
       }
     });
 
     const helpText = container.createDiv({ cls: 'abc-editor-view-help' });
     helpText.innerHTML = `
-      <p><strong>Tip:</strong> Edit the ABC notation above and click "Apply Changes" to update the sheet music.</p>
-      <p>Changes are automatically saved to your markdown file.</p>
+      <p><strong>Live editing:</strong> Changes update automatically as you type.</p>
+      <p>Click or select text to highlight corresponding notes in the sheet music.</p>
     `;
   }
 
   async onClose(): Promise<void> {
     // Cleanup
-    this.onSave = null;
+    if (this.updateTimeout) {
+      clearTimeout(this.updateTimeout);
+    }
+    this.onChange = null;
+    this.onSelectionChange = null;
   }
 
-  setContent(content: string, onSave: (content: string) => void): void {
+  setContent(
+    content: string, 
+    onChange: (content: string) => void,
+    onSelectionChange?: (startChar: number, endChar: number) => void
+  ): void {
     this.currentContent = content;
-    this.onSave = onSave;
+    this.onChange = onChange;
+    this.onSelectionChange = onSelectionChange || null;
     if (this.textarea) {
       this.textarea.value = content;
     }
@@ -67,8 +99,19 @@ export class AbcEditorView extends ItemView {
 
   updateContent(content: string): void {
     this.currentContent = content;
-    if (this.textarea) {
+    if (this.textarea && this.textarea.value !== content) {
+      // Preserve cursor position
+      const start = this.textarea.selectionStart;
+      const end = this.textarea.selectionEnd;
       this.textarea.value = content;
+      this.textarea.setSelectionRange(start, end);
+    }
+  }
+
+  highlightRange(startChar: number, endChar: number): void {
+    if (this.textarea) {
+      this.textarea.focus();
+      this.textarea.setSelectionRange(startChar, endChar);
     }
   }
 }
