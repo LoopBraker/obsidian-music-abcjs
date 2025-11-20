@@ -15,6 +15,7 @@ export class PlaybackElement extends MarkdownRenderChild {
   private draggingCheckbox: HTMLInputElement;
   private isPlaying: boolean = false;
   private draggingEnabled: boolean = false;
+  private selectedNoteStartTime: number | null = null;
 
   private beatsPerMeasure: number = 4;
   private totalBeats: number = 0;
@@ -54,10 +55,16 @@ export class PlaybackElement extends MarkdownRenderChild {
     const renderResp = renderAbc(this.el, source, options);
     this.visualObj = renderResp[0];
     
-    // Extract tune metrics
+    // Extract tune metrics and ensure timings are calculated
     if (this.visualObj) {
+      // Ensure timing information is calculated
+      this.visualObj.setTiming();
+      
       this.beatsPerMeasure = this.visualObj.getBeatsPerMeasure();
       this.totalBeats = this.visualObj.getTotalBeats();
+      
+      console.log('Tune loaded with', this.visualObj.lines?.length, 'lines');
+      console.log('Total time:', this.visualObj.getTotalTime(), 'seconds');
     }
     
     this.addPlaybackButtons();
@@ -248,8 +255,33 @@ export class PlaybackElement extends MarkdownRenderChild {
       this.playPauseButton.setAttribute('aria-label', 'Play');
       togglePlayingHighlight(this.el)(false);
     } else {
+      // Start playback components first
       this.midiBuffer.start();
       this.timingCallbacks?.start();
+      
+      // If a note is selected, seek to that position immediately after starting
+      if (this.selectedNoteStartTime !== null && this.visualObj) {
+        const totalTimeMs = (this.visualObj.getTotalTime() || 0) * 1000;
+        
+        if (totalTimeMs > 0) {
+          // Calculate position as percentage (0-1)
+          const startPosition = this.selectedNoteStartTime / totalTimeMs;
+          
+          console.log(`Seeking to ${this.selectedNoteStartTime}ms (${(startPosition * 100).toFixed(1)}% of ${totalTimeMs}ms)`);
+          
+          // Seek both audio and visual
+          this.midiBuffer.seek(startPosition);
+          this.timingCallbacks?.setProgress(startPosition);
+        }
+        
+        // Clear the selection after starting
+        this.selectedNoteStartTime = null;
+        const previousSelected = this.el.querySelector('.abcjs-selected-note');
+        if (previousSelected) {
+          previousSelected.classList.remove('abcjs-selected-note');
+        }
+      }
+      
       this.playPauseButton.innerHTML = '❚❚';
       this.playPauseButton.setAttribute('aria-label', 'Pause');
       togglePlayingHighlight(this.el)(true);
@@ -259,6 +291,13 @@ export class PlaybackElement extends MarkdownRenderChild {
 
   // start again at the begining of the tune
   private readonly restartPlayback = () => {
+    // Clear any selected note
+    this.selectedNoteStartTime = null;
+    const previousSelected = this.el.querySelector('.abcjs-selected-note');
+    if (previousSelected) {
+      previousSelected.classList.remove('abcjs-selected-note');
+    }
+    
     this.timingCallbacks?.stop();
     this.midiBuffer.stop();
     // After stopping, we can immediately start again for a seamless restart
@@ -272,11 +311,59 @@ export class PlaybackElement extends MarkdownRenderChild {
   };
 
   private readonly handleElementClick = async (abcElem: any, tuneNumber: number, classes: string, analysis: any, drag: any) => {
-    const updatedSource = await this.noteEditor.handleNoteDrag(abcElem, drag);
+    // If dragging is enabled and drag occurred, handle note dragging
+    if (this.draggingEnabled && drag && drag.step !== 0) {
+      const updatedSource = await this.noteEditor.handleNoteDrag(abcElem, drag);
+      
+      if (updatedSource) {
+        // Re-render with the updated source
+        this.reRender();
+      }
+      return;
+    }
     
-    if (updatedSource) {
-      // Re-render with the updated source
-      this.reRender();
+    // Handle note selection for playback (only when not playing)
+    if (!this.isPlaying && abcElem && (abcElem.el_type === 'note' || abcElem.el_type === 'rest')) {
+      console.log('Clicked element:', abcElem.el_type, 'at startChar:', abcElem.startChar);
+      
+      // Get timing information from the visualObj
+      if (!this.visualObj) {
+        console.warn('No visualObj available');
+        return;
+      }
+      
+      // Access noteTimings from the TimingCallbacks instance
+      if (!this.timingCallbacks || !this.timingCallbacks.noteTimings) {
+        console.warn('No timing information available');
+        return;
+      }
+      
+      // Find the timing info for the clicked element using startChar
+      const noteTiming = this.timingCallbacks.noteTimings.find(
+        timing => timing && timing.startChar === abcElem.startChar
+      );
+      
+      console.log('Found timing:', noteTiming);
+      
+      if (noteTiming && noteTiming.milliseconds != null) {
+        this.selectedNoteStartTime = noteTiming.milliseconds;
+        
+        // Visual feedback: highlight the selected note
+        const previousSelected = this.el.querySelector('.abcjs-selected-note');
+        if (previousSelected) {
+          previousSelected.classList.remove('abcjs-selected-note');
+        }
+        
+        if (abcElem.abselem && abcElem.abselem.elemset) {
+          abcElem.abselem.elemset.forEach((elem: SVGElement) => {
+            elem.classList.add('abcjs-selected-note');
+          });
+        }
+        
+        console.log(`Note selected at ${this.selectedNoteStartTime}ms for playback`);
+      } else {
+        console.warn('Could not find timing for startChar:', abcElem.startChar);
+      }
     }
   };
 
@@ -371,8 +458,11 @@ export class PlaybackElement extends MarkdownRenderChild {
     
     this.visualObj = renderResp[0];
     
-    // Re-extract tune metrics
+    // Re-extract tune metrics and ensure timings are calculated
     if (this.visualObj) {
+      // Ensure timing information is calculated
+      this.visualObj.setTiming();
+      
       this.beatsPerMeasure = this.visualObj.getBeatsPerMeasure();
       this.totalBeats = this.visualObj.getTotalBeats();
     }

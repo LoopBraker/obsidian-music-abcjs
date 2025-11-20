@@ -33,6 +33,16 @@
   fill: var(--background-modifier-success) !important;
 }
 
+/* Style for selected note (for playback start point) */
+.abcjs-selected-note path {
+  fill: var(--text-accent) !important;
+  opacity: 0.7;
+}
+
+.abcjs-selected-note {
+  cursor: pointer;
+}
+
 /* Highlight the region when audio is playing */
 .cm-embed-block.is-playing,
 .cm-embed-block.is-playing:focus-within {
