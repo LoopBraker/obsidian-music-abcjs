@@ -13,12 +13,17 @@ import { NoteEditor } from './note_editor';
 export class PlaybackElement extends MarkdownRenderChild {
   private playPauseButton: HTMLButtonElement;
   private draggingCheckbox: HTMLInputElement;
+  private loopCheckbox: HTMLInputElement;
+  private loopStartInput: HTMLInputElement;
+  private loopEndInput: HTMLInputElement;
   private isPlaying: boolean = false;
   private draggingEnabled: boolean = false;
+  private loopEnabled: boolean = false;
   private selectedNoteStartTime: number | null = null;
 
   private beatsPerMeasure: number = 4;
   private totalBeats: number = 0;
+  private totalMeasures: number = 0;
   private readonly abortController = new AbortController();
   private readonly midiBuffer: MidiBuffer = new synth.CreateSynth();
 
@@ -62,13 +67,15 @@ export class PlaybackElement extends MarkdownRenderChild {
       
       this.beatsPerMeasure = this.visualObj.getBeatsPerMeasure();
       this.totalBeats = this.visualObj.getTotalBeats();
+      this.totalMeasures = Math.ceil(this.totalBeats / this.beatsPerMeasure);
       
       console.log('Tune loaded with', this.visualObj.lines?.length, 'lines');
       console.log('Total time:', this.visualObj.getTotalTime(), 'seconds');
+      console.log('Total measures:', this.totalMeasures);
     }
     
     this.addPlaybackButtons();
-    this.addDraggingToggle();
+    this.addDraggingAndLoopToggles();
     this.enableAudioPlayback(this.visualObj);
   }
 
@@ -147,7 +154,37 @@ export class PlaybackElement extends MarkdownRenderChild {
         return undefined;
       },
       beatCallback: (beatNumber: number, totalBeats: number, totalTime: number) => {
-        // Beat callback for potential future use
+        // Check if loop is enabled and we need to loop back
+        if (!this.loopEnabled || !this.loopStartInput || !this.loopEndInput) return;
+        
+        const loopStart = parseInt(this.loopStartInput.value);
+        const loopEnd = parseInt(this.loopEndInput.value);
+        
+        if (isNaN(loopStart) || isNaN(loopEnd) || loopStart < 1 || loopEnd < loopStart) return;
+        
+        // Calculate the beat number for loop end
+        const loopEndBeat = loopEnd * this.beatsPerMeasure;
+        
+        // If we've reached or passed the loop end, jump back to loop start
+        if (beatNumber >= loopEndBeat) {
+          const loopStartBeat = (loopStart - 1) * this.beatsPerMeasure;
+          const totalTimeMs = (this.visualObj?.getTotalTime() || 0) * 1000;
+          
+          if (totalTimeMs > 0 && this.timingCallbacks && this.timingCallbacks.noteTimings) {
+            // Find the timing for the loop start beat
+            const startTiming = this.timingCallbacks.noteTimings.find(
+              timing => timing.measureStart && timing.measureNumber === loopStart
+            );
+            
+            if (startTiming) {
+              const startPosition = startTiming.milliseconds / totalTimeMs;
+              console.log(`Looping: beat ${beatNumber} -> measure ${loopStart} (${startTiming.milliseconds}ms, ${(startPosition * 100).toFixed(1)}%)`);
+              
+              this.midiBuffer.seek(startPosition);
+              this.timingCallbacks.setProgress(startPosition);
+            }
+          }
+        }
       }
     };
 
@@ -195,7 +232,7 @@ export class PlaybackElement extends MarkdownRenderChild {
     restartButton.addEventListener('click', this.restartPlayback);
   }
 
-  private addDraggingToggle() {
+  private addDraggingAndLoopToggles() {
     const toggleContainer = this.el.createDiv({ cls: 'abcjs-bottom-controls' });
     
     // Dragging checkbox
@@ -208,7 +245,47 @@ export class PlaybackElement extends MarkdownRenderChild {
     const dragLabel = dragContainer.createEl('label');
     dragLabel.setAttribute('for', this.draggingCheckbox.id);
     dragLabel.setText('Enable dragging');
+    
+    // Loop checkbox
+    const loopContainer = toggleContainer.createDiv({ cls: 'control-group' });
+    this.loopCheckbox = loopContainer.createEl('input', { type: 'checkbox' });
+    this.loopCheckbox.id = `loop-toggle-${Math.random().toString(36).substr(2, 9)}`;
+    this.loopCheckbox.checked = this.loopEnabled;
+    this.loopCheckbox.addEventListener('change', this.toggleLoop);
+    
+    const loopLabel = loopContainer.createEl('label');
+    loopLabel.setAttribute('for', this.loopCheckbox.id);
+    loopLabel.setText('Loop');
+    
+    // Loop Start input
+    const loopStartContainer = toggleContainer.createDiv({ cls: 'control-group' });
+    const lsLabel = loopStartContainer.createEl('label');
+    lsLabel.setText('LS:');
+    this.loopStartInput = loopStartContainer.createEl('input', { type: 'number' });
+    this.loopStartInput.setAttribute('min', '1');
+    if (this.totalMeasures > 0) {
+      this.loopStartInput.setAttribute('max', this.totalMeasures.toString());
+    }
+    this.loopStartInput.setAttribute('placeholder', '1');
+    this.loopStartInput.style.width = '50px';
+    
+    // Loop End input
+    const loopEndContainer = toggleContainer.createDiv({ cls: 'control-group' });
+    const leLabel = loopEndContainer.createEl('label');
+    leLabel.setText('LE:');
+    this.loopEndInput = loopEndContainer.createEl('input', { type: 'number' });
+    this.loopEndInput.setAttribute('min', '1');
+    if (this.totalMeasures > 0) {
+      this.loopEndInput.setAttribute('max', this.totalMeasures.toString());
+    }
+    this.loopEndInput.setAttribute('placeholder', String(this.totalMeasures));
+    this.loopEndInput.style.width = '50px';
   }
+
+  private readonly toggleLoop = () => {
+    this.loopEnabled = this.loopCheckbox.checked;
+    console.log('Loop', this.loopEnabled ? 'enabled' : 'disabled');
+  };
 
   private readonly toggleDragging = async () => {
     this.draggingEnabled = this.draggingCheckbox.checked;
@@ -465,6 +542,16 @@ export class PlaybackElement extends MarkdownRenderChild {
       
       this.beatsPerMeasure = this.visualObj.getBeatsPerMeasure();
       this.totalBeats = this.visualObj.getTotalBeats();
+      this.totalMeasures = Math.ceil(this.totalBeats / this.beatsPerMeasure);
+      
+      // Update loop input max values
+      if (this.loopStartInput && this.totalMeasures > 0) {
+        this.loopStartInput.setAttribute('max', this.totalMeasures.toString());
+      }
+      if (this.loopEndInput && this.totalMeasures > 0) {
+        this.loopEndInput.setAttribute('max', this.totalMeasures.toString());
+        this.loopEndInput.setAttribute('placeholder', String(this.totalMeasures));
+      }
     }
     
     // Update audio
@@ -494,7 +581,37 @@ export class PlaybackElement extends MarkdownRenderChild {
           return undefined;
         },
         beatCallback: (beatNumber: number, totalBeats: number, totalTime: number) => {
-          // Beat callback for potential future use
+          // Check if loop is enabled and we need to loop back
+          if (!this.loopEnabled || !this.loopStartInput || !this.loopEndInput) return;
+          
+          const loopStart = parseInt(this.loopStartInput.value);
+          const loopEnd = parseInt(this.loopEndInput.value);
+          
+          if (isNaN(loopStart) || isNaN(loopEnd) || loopStart < 1 || loopEnd < loopStart) return;
+          
+          // Calculate the beat number for loop end
+          const loopEndBeat = loopEnd * this.beatsPerMeasure;
+          
+          // If we've reached or passed the loop end, jump back to loop start
+          if (beatNumber >= loopEndBeat) {
+            const loopStartBeat = (loopStart - 1) * this.beatsPerMeasure;
+            const totalTimeMs = (this.visualObj?.getTotalTime() || 0) * 1000;
+            
+            if (totalTimeMs > 0 && this.timingCallbacks && this.timingCallbacks.noteTimings) {
+              // Find the timing for the loop start beat
+              const startTiming = this.timingCallbacks.noteTimings.find(
+                timing => timing.measureStart && timing.measureNumber === loopStart
+              );
+              
+              if (startTiming) {
+                const startPosition = startTiming.milliseconds / totalTimeMs;
+                console.log(`Looping: beat ${beatNumber} -> measure ${loopStart} (${startTiming.milliseconds}ms, ${(startPosition * 100).toFixed(1)}%)`);
+                
+                this.midiBuffer.seek(startPosition);
+                this.timingCallbacks.setProgress(startPosition);
+              }
+            }
+          }
         }
       };
       
