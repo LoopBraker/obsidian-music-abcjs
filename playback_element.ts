@@ -32,6 +32,10 @@ export class PlaybackElement extends MarkdownRenderChild {
   onload() {
     const { userOptions, source } = this.parseOptionsAndSource();
     this.noteEditor = new NoteEditor(source, this.ctx, this.el);
+    
+    // Check if %%allowDrag directive exists in source
+    this.draggingEnabled = source.includes('%%allowDrag');
+    
     const options = { 
       ...DEFAULT_OPTIONS, 
       ...userOptions,
@@ -144,6 +148,7 @@ export class PlaybackElement extends MarkdownRenderChild {
     
     this.draggingCheckbox = toggleContainer.createEl('input', { type: 'checkbox' });
     this.draggingCheckbox.id = `drag-toggle-${Math.random().toString(36).substr(2, 9)}`;
+    this.draggingCheckbox.checked = this.draggingEnabled; // Set initial state from source
     this.draggingCheckbox.addEventListener('change', this.toggleDragging);
     
     const label = toggleContainer.createEl('label');
@@ -151,8 +156,36 @@ export class PlaybackElement extends MarkdownRenderChild {
     label.setText('Enable dragging');
   }
 
-  private readonly toggleDragging = () => {
+  private readonly toggleDragging = async () => {
     this.draggingEnabled = this.draggingCheckbox.checked;
+    
+    let currentSource = this.noteEditor.getSource();
+    
+    if (this.draggingEnabled) {
+      // Add %%allowDrag directive if not present
+      if (!currentSource.includes('%%allowDrag')) {
+        // Add it at the beginning or after first line
+        const lines = currentSource.split('\n');
+        if (lines.length > 0 && lines[0].startsWith('X:')) {
+          // Insert after X: line
+          lines.splice(1, 0, '%%allowDrag');
+        } else {
+          // Insert at beginning
+          lines.unshift('%%allowDrag');
+        }
+        currentSource = lines.join('\n');
+      }
+    } else {
+      // Remove %%allowDrag directive
+      currentSource = currentSource.replace(/%%allowDrag\n?/g, '');
+    }
+    
+    // Update the source in noteEditor
+    this.noteEditor.setSource(currentSource);
+    
+    // Save to file
+    await this.updateFileWithSource(currentSource);
+    
     this.reRender();
   };
 
@@ -186,8 +219,65 @@ export class PlaybackElement extends MarkdownRenderChild {
     }
   };
 
+  private async updateFileWithSource(abcSource: string) {
+    if (!this.ctx) return;
+    
+    const sectionInfo = this.ctx.getSectionInfo(this.el);
+    if (!sectionInfo) return;
+
+    const { lineStart } = sectionInfo;
+    const sourcePath = (this.ctx as any).sourcePath;
+    if (!sourcePath) return;
+
+    const app = (window as any).app;
+    const file = app.vault.getAbstractFileByPath(sourcePath);
+    if (!file) return;
+
+    try {
+      const content = await app.vault.read(file);
+      const lines = content.split('\n');
+      
+      let codeBlockStart = -1;
+      let codeBlockEnd = -1;
+      
+      for (let i = lineStart; i >= 0; i--) {
+        if (lines[i].trim().startsWith('```abc') || lines[i].trim().startsWith('```music-abc')) {
+          codeBlockStart = i;
+          break;
+        }
+      }
+      
+      for (let i = lineStart; i < lines.length; i++) {
+        if (i > codeBlockStart && lines[i].trim().startsWith('```')) {
+          codeBlockEnd = i;
+          break;
+        }
+      }
+      
+      if (codeBlockStart >= 0 && codeBlockEnd > codeBlockStart) {
+        const beforeBlock = lines.slice(0, codeBlockStart + 1);
+        const afterBlock = lines.slice(codeBlockEnd);
+        
+        const newLines = [
+          ...beforeBlock,
+          abcSource,
+          ...afterBlock
+        ];
+        
+        const newContent = newLines.join('\n');
+        await app.vault.modify(file, newContent);
+      }
+    } catch (error) {
+      console.error('Failed to update file:', error);
+    }
+  }
+
   private reRender() {
     const abcSource = this.noteEditor.getSource();
+    
+    // Update dragging state based on source
+    this.draggingEnabled = abcSource.includes('%%allowDrag');
+    
     const { userOptions } = this.parseOptionsAndSource();
     const options = { 
       ...DEFAULT_OPTIONS, 
@@ -213,7 +303,7 @@ export class PlaybackElement extends MarkdownRenderChild {
       this.el.insertBefore(newSvg, buttonsContainer);
     }
     
-    // Restore checkbox state after render
+    // Restore checkbox state from source
     if (this.draggingCheckbox) {
       this.draggingCheckbox.checked = this.draggingEnabled;
     }
