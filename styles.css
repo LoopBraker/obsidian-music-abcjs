@@ -26,6 +26,7 @@
 /* ------------------------------------------------- Audio Playback styles */
 .abcjs-container {
   cursor: pointer;
+  position: relative;
 }
 
 /* color the current notes */
@@ -60,13 +61,14 @@
 
 /* Playback control buttons */
 .abcjs-controls {
-  display: inline-flex;
+  display: inline-flex !important;
   gap: 8px;
-  margin-left: 8px;
-  margin-top: 8px;
+  margin: 8px;
+  margin-bottom: 12px;
   position: relative;
-  z-index: 10;
+  z-index: 100;
   width: fit-content;
+  visibility: visible !important;
 }
 
 .abcjs-controls button {
@@ -88,17 +90,24 @@
   background-color: var(--interactive-accent);
 }
 
-/* Bottom controls (dragging + loop) */
-.abcjs-bottom-controls {
+/* Bottom controls wrapper */
+.abcjs-bottom-controls-wrapper {
   position: absolute;
   left: 8px;
   bottom: 8px;
   display: flex;
   align-items: center;
+  gap: 8px;
+  z-index: 10;
+}
+
+/* Individual control boxes (dragging + loop) */
+.abcjs-bottom-controls {
+  display: flex;
+  align-items: center;
   gap: 12px;
   font-size: var(--font-ui-small);
   color: var(--text-muted);
-  z-index: 10;
   background-color: var(--background-primary);
   padding: 4px 8px;
   border-radius: var(--radius-s);
@@ -138,4 +147,136 @@
   user-select: none;
   margin: 0;
   white-space: nowrap;
+}
+
+/* Editor container and textarea */
+.abcjs-editor-container {
+  margin: 12px 8px;
+  margin-bottom: 60px; /* Extra bottom margin to clear absolute positioned controls */
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background-color: var(--background-primary);
+  position: relative;
+  z-index: 5;
+}
+
+.abcjs-editor-textarea {
+  width: 100%;
+  min-height: 200px;
+  padding: 12px;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  border: none;
+  border-radius: var(--radius-s);
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.abcjs-editor-textarea:focus {
+  outline: none;
+  background-color: var(--background-secondary);
+}
+
+/* Editor Modal */
+.abc-editor-modal-textarea {
+  width: 100%;
+  min-height: 400px;
+  padding: 12px;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-medium);
+  line-height: 1.6;
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  resize: vertical;
+  box-sizing: border-box;
+  margin-bottom: 16px;
+}
+
+.abc-editor-modal-textarea:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.abc-editor-modal-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.abc-editor-modal-buttons button {
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+/* ABC Editor Sidebar View */
+.abc-editor-view {
+  padding: 16px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.abc-editor-view-header {
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 8px;
+}
+
+.abc-editor-view-header h4 {
+  margin: 0;
+  color: var(--text-normal);
+  font-size: var(--font-ui-medium);
+}
+
+.abc-editor-view-textarea {
+  flex: 1;
+  width: 100%;
+  padding: 12px;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-small);
+  line-height: 1.6;
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  resize: none;
+  box-sizing: border-box;
+}
+
+.abc-editor-view-textarea:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.abc-editor-view-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.abc-editor-view-buttons button {
+  padding: 6px 16px;
+  cursor: pointer;
+}
+
+.abc-editor-view-help {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  padding: 8px;
+  background-color: var(--background-secondary);
+  border-radius: var(--radius-s);
+  border-left: 3px solid var(--interactive-accent);
+}
+
+.abc-editor-view-help p {
+  margin: 4px 0;
+}
+
+.abc-editor-view-help strong {
+  color: var(--text-normal);
 }

@@ -1,8 +1,9 @@
 import { MidiBuffer, TuneObject, renderAbc, synth, SynthOptions, TimingCallbacks, AnimationOptions } from 'abcjs';
-import { MarkdownRenderChild, MarkdownPostProcessorContext } from 'obsidian';
+import { MarkdownRenderChild, MarkdownPostProcessorContext, App } from 'obsidian';
 import { AUDIO_PARAMS, DEFAULT_OPTIONS, OPTIONS_REGEX, PLAYBACK_CONTROLS_ID, SYNTH_INIT_OPTIONS } from './cfg';
 import { NoteHighlighter, togglePlayingHighlight } from './note_highlighter';
 import { NoteEditor } from './note_editor';
+import { AbcEditorView, ABC_EDITOR_VIEW_TYPE } from './editor_view';
 
 /**
  * This class abstraction is needed to support load/unload hooks
@@ -20,6 +21,7 @@ export class PlaybackElement extends MarkdownRenderChild {
   private draggingEnabled: boolean = false;
   private loopEnabled: boolean = false;
   private selectedNoteStartTime: number | null = null;
+  private editorButton: HTMLButtonElement;
 
   private beatsPerMeasure: number = 4;
   private totalBeats: number = 0;
@@ -238,13 +240,22 @@ export class PlaybackElement extends MarkdownRenderChild {
     restartButton.innerHTML = '⏮';
     restartButton.setAttribute('aria-label', 'Restart');
     restartButton.addEventListener('click', this.restartPlayback);
+
+    this.editorButton = buttonContainer.createEl('button');
+    this.editorButton.innerHTML = '✏️';
+    this.editorButton.setAttribute('aria-label', 'Editor');
+    this.editorButton.addEventListener('click', this.toggleEditor);
   }
+  
+
 
   private addDraggingAndLoopToggles() {
-    const toggleContainer = this.el.createDiv({ cls: 'abcjs-bottom-controls' });
+    // Create wrapper container for all bottom controls
+    const bottomControlsWrapper = this.el.createDiv({ cls: 'abcjs-bottom-controls-wrapper' });
     
-    // Dragging checkbox
-    const dragContainer = toggleContainer.createDiv({ cls: 'control-group' });
+    // Dragging controls container
+    const draggingContainer = bottomControlsWrapper.createDiv({ cls: 'abcjs-bottom-controls' });
+    const dragContainer = draggingContainer.createDiv({ cls: 'control-group' });
     this.draggingCheckbox = dragContainer.createEl('input', { type: 'checkbox' });
     this.draggingCheckbox.id = `drag-toggle-${Math.random().toString(36).substr(2, 9)}`;
     this.draggingCheckbox.checked = this.draggingEnabled;
@@ -254,19 +265,22 @@ export class PlaybackElement extends MarkdownRenderChild {
     dragLabel.setAttribute('for', this.draggingCheckbox.id);
     dragLabel.setText('Enable dragging');
     
+    // Loop controls container (separate box)
+    const loopContainer = bottomControlsWrapper.createDiv({ cls: 'abcjs-bottom-controls' });
+    
     // Loop checkbox
-    const loopContainer = toggleContainer.createDiv({ cls: 'control-group' });
-    this.loopCheckbox = loopContainer.createEl('input', { type: 'checkbox' });
+    const loopCheckboxContainer = loopContainer.createDiv({ cls: 'control-group' });
+    this.loopCheckbox = loopCheckboxContainer.createEl('input', { type: 'checkbox' });
     this.loopCheckbox.id = `loop-toggle-${Math.random().toString(36).substr(2, 9)}`;
     this.loopCheckbox.checked = this.loopEnabled;
     this.loopCheckbox.addEventListener('change', this.toggleLoop);
     
-    const loopLabel = loopContainer.createEl('label');
+    const loopLabel = loopCheckboxContainer.createEl('label');
     loopLabel.setAttribute('for', this.loopCheckbox.id);
     loopLabel.setText('Loop');
     
     // Loop Start input
-    const loopStartContainer = toggleContainer.createDiv({ cls: 'control-group' });
+    const loopStartContainer = loopContainer.createDiv({ cls: 'control-group' });
     const lsLabel = loopStartContainer.createEl('label');
     lsLabel.setText('LS:');
     this.loopStartInput = loopStartContainer.createEl('input', { type: 'number' });
@@ -278,7 +292,7 @@ export class PlaybackElement extends MarkdownRenderChild {
     this.loopStartInput.style.width = '50px';
     
     // Loop End input
-    const loopEndContainer = toggleContainer.createDiv({ cls: 'control-group' });
+    const loopEndContainer = loopContainer.createDiv({ cls: 'control-group' });
     const leLabel = loopEndContainer.createEl('label');
     leLabel.setText('LE:');
     this.loopEndInput = loopEndContainer.createEl('input', { type: 'number' });
@@ -293,6 +307,39 @@ export class PlaybackElement extends MarkdownRenderChild {
   private readonly toggleLoop = () => {
     this.loopEnabled = this.loopCheckbox.checked;
     console.log('Loop', this.loopEnabled ? 'enabled' : 'disabled');
+  };
+
+  private readonly toggleEditor = async () => {
+    const app = (window as any).app as App;
+    
+    // Check if editor view is already open
+    const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+    
+    if (leaves.length === 0) {
+      // Open in right sidebar
+      const leaf = app.workspace.getRightLeaf(false);
+      await leaf.setViewState({
+        type: ABC_EDITOR_VIEW_TYPE,
+        active: true,
+      });
+    }
+    
+    // Get the view and set content
+    const leaves2 = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+    if (leaves2.length > 0) {
+      const view = leaves2[0].view as AbcEditorView;
+      view.setContent(
+        this.noteEditor.getSource(),
+        async (newSource: string) => {
+          this.noteEditor.setSource(newSource);
+          await this.updateFileWithSource(newSource);
+          this.reRender();
+        }
+      );
+      
+      // Reveal the leaf (bring it to front)
+      app.workspace.revealLeaf(leaves2[0]);
+    }
   };
 
   private readonly toggleDragging = async () => {
