@@ -315,35 +315,46 @@ export class PlaybackElement extends MarkdownRenderChild {
     // Check if editor view is already open
     const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
     
-    if (leaves.length === 0) {
-      // Open in right sidebar
+    if (leaves.length > 0) {
+      // Editor is open - close it
+      leaves[0].detach();
+      
+      // Update button visual state
+      this.editorButton.style.backgroundColor = '';
+      this.editorButton.style.color = '';
+    } else {
+      // Editor is closed - open it
       const leaf = app.workspace.getRightLeaf(false);
       await leaf.setViewState({
         type: ABC_EDITOR_VIEW_TYPE,
         active: true,
       });
-    }
-    
-    // Get the view and set content
-    const leaves2 = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
-    if (leaves2.length > 0) {
-      const view = leaves2[0].view as AbcEditorView;
-      view.setContent(
-        this.noteEditor.getSource(),
-        async (newSource: string) => {
-          // Live update: save and re-render
-          this.noteEditor.setSource(newSource);
-          await this.updateFileWithSource(newSource);
-          this.reRender();
-        },
-        (startChar: number, endChar: number) => {
-          // Selection in editor: highlight notes in sheet
-          this.highlightNotesInRange(startChar, endChar);
-        }
-      );
       
-      // Reveal the leaf (bring it to front)
-      app.workspace.revealLeaf(leaves2[0]);
+      // Get the view and set content
+      const leaves2 = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+      if (leaves2.length > 0) {
+        const view = leaves2[0].view as AbcEditorView;
+        view.setContent(
+          this.noteEditor.getSource(),
+          async (newSource: string) => {
+            // Live update: save and re-render
+            this.noteEditor.setSource(newSource);
+            await this.updateFileWithSource(newSource);
+            this.reRender();
+          },
+          (startChar: number, endChar: number) => {
+            // Selection in editor: highlight notes in sheet
+            this.highlightNotesInRange(startChar, endChar);
+          }
+        );
+        
+        // Update button visual state
+        this.editorButton.style.backgroundColor = 'var(--interactive-accent)';
+        this.editorButton.style.color = 'var(--text-on-accent)';
+        
+        // Reveal the leaf (bring it to front)
+        app.workspace.revealLeaf(leaves2[0]);
+      }
     }
   };
 
