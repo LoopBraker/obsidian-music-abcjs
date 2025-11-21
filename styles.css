@@ -243,6 +243,68 @@
   font-size: var(--font-ui-medium);
 }
 
+/* CodeMirror Container */
+.abc-codemirror-container {
+  flex: 1;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  overflow: hidden;
+  background-color: var(--background-primary);
+}
+
+.abc-codemirror-container .cm-editor {
+  height: 100%;
+  background-color: var(--background-primary);
+}
+
+.abc-codemirror-container .cm-scroller {
+  overflow: auto;
+}
+
+.abc-codemirror-container .cm-content {
+  color: var(--text-normal);
+}
+
+.abc-codemirror-container .cm-gutters {
+  background-color: var(--background-secondary);
+  color: var(--text-muted);
+  border-right: 1px solid var(--background-modifier-border);
+}
+
+.abc-codemirror-container .cm-activeLineGutter {
+  background-color: var(--background-modifier-hover);
+}
+
+.abc-codemirror-container .cm-lineNumbers .cm-gutterElement {
+  padding: 0 8px;
+}
+
+.abc-codemirror-container .cm-activeLine {
+  background-color: var(--background-primary-alt);
+}
+
+.abc-codemirror-container .cm-selectionBackground {
+  background-color: var(--text-selection) !important;
+}
+
+.abc-codemirror-container .cm-cursor {
+  border-left-color: var(--text-accent);
+}
+
+.abc-codemirror-container .cm-matchingBracket {
+  background-color: var(--background-modifier-success);
+  outline: 1px solid var(--background-modifier-border);
+}
+
+.abc-codemirror-container .cm-nonmatchingBracket {
+  background-color: var(--background-modifier-error);
+}
+
+.abc-codemirror-container .cm-selectionMatch {
+  background-color: var(--background-modifier-border);
+}
+
+/* Fallback for old textarea styles */
 .abc-editor-view-textarea {
   flex: 1;
   width: 100%;
