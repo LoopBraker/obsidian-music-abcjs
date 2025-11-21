@@ -1,7 +1,7 @@
 # Intellij
 *.iml
 .idea
-
+Debug_ISSUE.md
 # npm
 node_modules
 

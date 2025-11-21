@@ -102,7 +102,7 @@
 
 /* Bottom controls wrapper */
 .abcjs-bottom-controls-wrapper {
-  position: absolute;
+  position: relative;
   left: 8px;
   bottom: 8px;
   display: flex;

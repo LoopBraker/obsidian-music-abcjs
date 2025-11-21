@@ -51,22 +51,18 @@ export class AbcEditorView extends ItemView {
       }, 300); // 300ms debounce for smooth typing
     });
 
-    // Selection change handler
-    this.textarea.addEventListener('select', () => {
+    // Selection change handler - using a wrapper to always get current callback
+    const handleSelection = () => {
       if (this.onSelectionChange) {
         const start = this.textarea.selectionStart;
         const end = this.textarea.selectionEnd;
         this.onSelectionChange(start, end);
       }
-    });
-
-    this.textarea.addEventListener('click', () => {
-      if (this.onSelectionChange) {
-        const start = this.textarea.selectionStart;
-        const end = this.textarea.selectionEnd;
-        this.onSelectionChange(start, end);
-      }
-    });
+    };
+    
+    this.textarea.addEventListener('select', handleSelection);
+    this.textarea.addEventListener('click', handleSelection);
+    this.textarea.addEventListener('keyup', handleSelection); // Also trigger on keyboard navigation
 
     const helpText = container.createDiv({ cls: 'abc-editor-view-help' });
     helpText.innerHTML = `
@@ -92,8 +88,13 @@ export class AbcEditorView extends ItemView {
     this.currentContent = content;
     this.onChange = onChange;
     this.onSelectionChange = onSelectionChange || null;
-    if (this.textarea) {
+    if (this.textarea && this.textarea.value !== content) {
+      // Only update if content actually changed
+      // Preserve cursor position
+      const start = this.textarea.selectionStart;
+      const end = this.textarea.selectionEnd;
       this.textarea.value = content;
+      this.textarea.setSelectionRange(start, end);
     }
   }
 
@@ -113,5 +114,14 @@ export class AbcEditorView extends ItemView {
       this.textarea.focus();
       this.textarea.setSelectionRange(startChar, endChar);
     }
+  }
+
+  updateCallbacks(
+    onChange: (content: string) => void,
+    onSelectionChange?: (startChar: number, endChar: number) => void
+  ): void {
+    // Update callbacks without touching the content
+    this.onChange = onChange;
+    this.onSelectionChange = onSelectionChange || null;
   }
 }

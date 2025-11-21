@@ -37,6 +37,7 @@ export class PlaybackElement extends MarkdownRenderChild {
 
   private visualObj: TuneObject | null = null;
   private noteEditor: NoteEditor;
+  private sheetWrapper: HTMLElement | null = null;
 
   constructor(
     private readonly el: HTMLElement,
@@ -53,13 +54,18 @@ export class PlaybackElement extends MarkdownRenderChild {
     // Check if %%allowDrag directive exists in source
     this.draggingEnabled = source.includes('%%allowDrag');
     
+    // Create the stable sheet wrapper but DON'T append it yet
+    this.sheetWrapper = document.createElement('div');
+    this.sheetWrapper.addClass('abcjs-sheet-wrapper');
+    
     const options = { 
       ...DEFAULT_OPTIONS, 
       ...userOptions,
       dragging: this.draggingEnabled,
+      add_classes: true,
       clickListener: this.handleElementClick
     };
-    const renderResp = renderAbc(this.el, source, options);
+    const renderResp = renderAbc(this.sheetWrapper, source, options);
     this.visualObj = renderResp[0];
     
     // Extract tune metrics and ensure timings are calculated
@@ -76,8 +82,15 @@ export class PlaybackElement extends MarkdownRenderChild {
       console.log('Total measures:', this.totalMeasures);
     }
     
+    // Add playback buttons first (they'll appear at the top)
     this.addPlaybackButtons();
+    
+    // Then add sheet wrapper (in the middle)
+    this.el.appendChild(this.sheetWrapper);
+    
+    // Then add dragging and loop controls (they'll appear at the bottom)
     this.addDraggingAndLoopToggles();
+    
     this.enableAudioPlayback(this.visualObj);
   }
 
@@ -245,6 +258,22 @@ export class PlaybackElement extends MarkdownRenderChild {
     this.editorButton.innerHTML = '✏️';
     this.editorButton.setAttribute('aria-label', 'Editor');
     this.editorButton.addEventListener('click', this.toggleEditor);
+    
+    // Update editor button state based on whether editor is open
+    this.updateEditorButtonState();
+  }
+  
+  private updateEditorButtonState(): void {
+    const app = (window as any).app as App;
+    const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+    
+    if (leaves.length > 0 && this.editorButton) {
+      this.editorButton.style.backgroundColor = 'var(--interactive-accent)';
+      this.editorButton.style.color = 'var(--text-on-accent)';
+    } else if (this.editorButton) {
+      this.editorButton.style.backgroundColor = '';
+      this.editorButton.style.color = '';
+    }
   }
   
 
@@ -359,32 +388,70 @@ export class PlaybackElement extends MarkdownRenderChild {
   };
 
   private highlightNotesInRange(startChar: number, endChar: number): void {
+    console.log('highlightNotesInRange called:', startChar, endChar);
+    
     // Clear previous highlights
     const previousHighlights = this.el.querySelectorAll('.abcjs-editor-selected');
     previousHighlights.forEach(el => el.classList.remove('abcjs-editor-selected'));
 
-    // Find all elements in the range
-    if (!this.visualObj || !this.visualObj.lines) return;
+    if (!this.visualObj) {
+      console.log('No visualObj available');
+      return;
+    }
 
+    let foundElements = 0;
+    let highlightedElements = 0;
+    
+    // Iterate through visualObj to find matching elements
     for (const line of this.visualObj.lines) {
       for (const staff of line.staff) {
         for (const voice of staff.voices) {
           for (const element of voice) {
             const elem = element as any;
-            if (elem.abselem && elem.startChar !== undefined && elem.endChar !== undefined) {
+            if (elem.startChar !== undefined && elem.endChar !== undefined) {
               // Check if element overlaps with selection
               if (elem.startChar < endChar && elem.endChar > startChar) {
-                // Highlight this element
-                if (elem.abselem.elemset) {
-                  elem.abselem.elemset.forEach((svgEl: SVGElement) => {
-                    svgEl.classList.add('abcjs-editor-selected');
-                  });
+                foundElements++;
+                // Highlight this element - elemset is an array
+                if (elem.abselem?.elemset && elem.abselem.elemset.length > 0) {
+                  for (let i = 0; i < elem.abselem.elemset.length; i++) {
+                    const svgEl = elem.abselem.elemset[i] as SVGElement;
+                    if (svgEl && svgEl.classList) {
+                      svgEl.classList.add('abcjs-editor-selected');
+                      highlightedElements++;
+                    }
+                  }
                 }
               }
             }
           }
         }
       }
+    }
+    console.log('Found elements:', foundElements, 'Highlighted SVG elements:', highlightedElements);
+  }
+
+  private updateEditorCallbacks(): void {
+    const app = (window as any).app as App;
+    const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+    
+    if (leaves.length > 0) {
+      const view = leaves[0].view as AbcEditorView;
+      console.log('Updating editor callbacks after re-render');
+      // Update callbacks without touching content (preserves cursor position)
+      view.updateCallbacks(
+        async (newSource: string) => {
+          // Live update: save and re-render
+          this.noteEditor.setSource(newSource);
+          await this.updateFileWithSource(newSource);
+          this.reRender();
+        },
+        (startChar: number, endChar: number) => {
+          // Selection in editor: highlight notes in sheet
+          console.log('Selection callback triggered:', startChar, endChar);
+          this.highlightNotesInRange(startChar, endChar);
+        }
+      );
     }
   }
 
@@ -615,29 +682,36 @@ export class PlaybackElement extends MarkdownRenderChild {
     this.draggingEnabled = abcSource.includes('%%allowDrag');
     
     const { userOptions } = this.parseOptionsAndSource();
+    
+    // CRITICAL FIX: Remove the old wrapper completely and create a fresh one
+    // This ensures abcjs properly populates elemset references
+    if (this.sheetWrapper && this.sheetWrapper.parentElement) {
+      this.sheetWrapper.remove();
+    }
+    
+    // Create a fresh wrapper for re-rendering
+    this.sheetWrapper = document.createElement('div');
+    this.sheetWrapper.addClass('abcjs-sheet-wrapper');
+    
+    // Insert before the controls (or at the end if controls don't exist)
+    const buttonsContainer = this.el.querySelector('.abcjs-controls');
+    if (buttonsContainer) {
+      this.el.insertBefore(this.sheetWrapper, buttonsContainer);
+    } else {
+      this.el.appendChild(this.sheetWrapper);
+    }
+    
+    // Create fresh options with clickListener to force elemset population
     const options = { 
       ...DEFAULT_OPTIONS, 
       ...userOptions,
       dragging: this.draggingEnabled,
+      add_classes: true,
       clickListener: this.handleElementClick
     };
     
-    // Clear existing SVG only (preserve buttons and checkbox)
-    const svg = this.el.querySelector('svg');
-    if (svg) svg.remove();
-    
-    // Find where to insert the new SVG (before the buttons container)
-    const buttonsContainer = this.el.querySelector('.abcjs-controls');
-    
-    // Create a temporary container for rendering
-    const tempDiv = document.createElement('div');
-    const renderResp = renderAbc(tempDiv, abcSource, options);
-    
-    // Move the SVG to the correct position
-    const newSvg = tempDiv.querySelector('svg');
-    if (newSvg && buttonsContainer) {
-      this.el.insertBefore(newSvg, buttonsContainer);
-    }
+    // Render into the fresh container (already in DOM, so elemset will be populated)
+    const renderResp = renderAbc(this.sheetWrapper, abcSource, options);
     
     // Restore checkbox state from source
     if (this.draggingCheckbox) {
@@ -646,7 +720,7 @@ export class PlaybackElement extends MarkdownRenderChild {
     
     this.visualObj = renderResp[0];
     
-    // Re-extract tune metrics and ensure timings are calculated
+    // Re-extract tune metrics and ensure timings are calculated FIRST
     if (this.visualObj) {
       // Ensure timing information is calculated
       this.visualObj.setTiming();
@@ -663,6 +737,10 @@ export class PlaybackElement extends MarkdownRenderChild {
         this.loopEndInput.setAttribute('max', this.totalMeasures.toString());
         this.loopEndInput.setAttribute('placeholder', String(this.totalMeasures));
       }
+      
+      // Now that visualObj is ready with timing, update editor button and callbacks
+      this.updateEditorButtonState();
+      this.updateEditorCallbacks();
     }
     
     // Update audio
