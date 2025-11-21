@@ -298,7 +298,7 @@ export class PlaybackElement extends MarkdownRenderChild {
     this.draggingCheckbox = dragContainer.createEl('input', { type: 'checkbox' });
     this.draggingCheckbox.id = `drag-toggle-${Math.random().toString(36).substr(2, 9)}`;
     this.draggingCheckbox.checked = this.draggingEnabled;
-    this.draggingCheckbox.addEventListener('change', this.toggleDragging);
+    this.draggingCheckbox.addEventListener('change', () => this.toggleDragging(true));
     
     const dragLabel = dragContainer.createEl('label');
     dragLabel.setAttribute('for', this.draggingCheckbox.id);
@@ -362,7 +362,7 @@ export class PlaybackElement extends MarkdownRenderChild {
       this.editorButton.style.backgroundColor = '';
       this.editorButton.style.color = '';
     } else {
-      // Editor is closed - open it
+      // FIRST: Open the editor before making any changes
       const leaf = app.workspace.getRightLeaf(false);
       await leaf.setViewState({
         type: ABC_EDITOR_VIEW_TYPE,
@@ -391,12 +391,31 @@ export class PlaybackElement extends MarkdownRenderChild {
           }
         );
         
-        // Update button visual state
+        // Reveal the leaf (bring it to front)
+        app.workspace.revealLeaf(leaves2[0]);
+        
+        // Update button visual state IMMEDIATELY
         this.editorButton.style.backgroundColor = 'var(--interactive-accent)';
         this.editorButton.style.color = 'var(--text-on-accent)';
         
-        // Reveal the leaf (bring it to front)
-        app.workspace.revealLeaf(leaves2[0]);
+        // THEN: If dragging is enabled, remove %%allowDrag from the file
+        if (this.draggingEnabled) {
+          this.draggingCheckbox.checked = false;
+          this.draggingEnabled = false;
+          
+          let currentSource = this.noteEditor.getSource();
+          // Remove %%allowDrag directive
+          currentSource = currentSource.replace(/%%allowDrag\n?/g, '');
+          
+          // Update the source in noteEditor
+          this.noteEditor.setSource(currentSource);
+          
+          // Update the editor view content
+          view.updateContent(currentSource);
+          
+          // Save to file to ensure %%allowDrag is removed
+          await this.updateFileWithSource(currentSource);
+        }
       }
     }
   };
@@ -476,8 +495,23 @@ export class PlaybackElement extends MarkdownRenderChild {
     }
   }
 
-  private readonly toggleDragging = async () => {
+  private readonly toggleDragging = async (saveToFile: boolean = true) => {
     this.draggingEnabled = this.draggingCheckbox.checked;
+    
+    // NEW: If enabling dragging, close the editor if it's open
+    if (this.draggingEnabled) {
+      const app = (window as any).app as App;
+      const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+      
+      if (leaves.length > 0) {
+        // Close the editor
+        leaves[0].detach();
+        
+        // Update editor button visual state
+        this.editorButton.style.backgroundColor = '';
+        this.editorButton.style.color = '';
+      }
+    }
     
     let currentSource = this.noteEditor.getSource();
     
@@ -503,8 +537,10 @@ export class PlaybackElement extends MarkdownRenderChild {
     // Update the source in noteEditor
     this.noteEditor.setSource(currentSource);
     
-    // Save to file
-    await this.updateFileWithSource(currentSource);
+    // Only save to file if requested (avoid triggering reload when called from toggleEditor)
+    if (saveToFile) {
+      await this.updateFileWithSource(currentSource);
+    }
     
     this.reRender();
   };
