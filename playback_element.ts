@@ -616,6 +616,28 @@ export class PlaybackElement extends MarkdownRenderChild {
         });
       }
       
+      // NEW FEATURE: Play the note sound when clicked (even when paused)
+      // This provides immediate audio feedback for any clicked note
+      if (abcElem.midiPitches && abcElem.midiPitches.length > 0) {
+        // Ensure audio context is active (required for web audio)
+        synth.activeAudioContext()?.resume();
+        
+        // Calculate tempo from visualObj for accurate note duration
+        const tempo = this.visualObj?.getBpm() || 120;
+        const millisecondsPerMeasure = (60000 * this.beatsPerMeasure) / tempo;
+        
+        // Play the clicked note with synth.playEvent
+        synth.playEvent(
+          abcElem.midiPitches,
+          abcElem.midiGraceNotePitches,
+          millisecondsPerMeasure
+        ).then(() => {
+          console.log('Note played:', abcElem.midiPitches);
+        }).catch((error: any) => {
+          console.warn('Error playing note:', error);
+        });
+      }
+      
       // Handle note selection for playback (only when not playing)
       if (!this.isPlaying) {
         
