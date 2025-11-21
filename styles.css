@@ -280,7 +280,7 @@
 }
 
 .abc-codemirror-container .cm-activeLine {
-  background-color: var(--background-primary-alt);
+  background-color: none;
 }
 
 .abc-codemirror-container .cm-selectionBackground {
