@@ -54,10 +54,20 @@ export class PlaybackElement extends MarkdownRenderChild {
     // Check if %%allowDrag directive exists in source
     this.draggingEnabled = source.includes('%%allowDrag');
     
-    // Create the stable sheet wrapper but DON'T append it yet
+    // 1. Create the wrapper
     this.sheetWrapper = document.createElement('div');
     this.sheetWrapper.addClass('abcjs-sheet-wrapper');
     
+    // 2. Add playback buttons first (they'll appear at the top)
+    this.addPlaybackButtons();
+    
+    // 3. CRITICAL FIX: Append wrapper to DOM *BEFORE* rendering
+    // abcjs needs the element to be in the DOM to calculate width/height
+    // for generating selectable SVG paths (elemset). Rendering into a detached
+    // div (not yet appended) results in 0 width and empty elemset arrays.
+    this.el.appendChild(this.sheetWrapper);
+    
+    // 4. Now render into the attached wrapper
     const options = { 
       ...DEFAULT_OPTIONS, 
       ...userOptions,
@@ -82,16 +92,16 @@ export class PlaybackElement extends MarkdownRenderChild {
       console.log('Total measures:', this.totalMeasures);
     }
     
-    // Add playback buttons first (they'll appear at the top)
-    this.addPlaybackButtons();
-    
-    // Then add sheet wrapper (in the middle)
-    this.el.appendChild(this.sheetWrapper);
-    
-    // Then add dragging and loop controls (they'll appear at the bottom)
+    // 5. Add remaining controls (they'll appear at the bottom)
     this.addDraggingAndLoopToggles();
     
     this.enableAudioPlayback(this.visualObj);
+    
+    // 6. Reconnect editor to this new live instance
+    // When a file is edited, Obsidian destroys the old PlaybackElement and creates a new one.
+    // The editor view still has callbacks pointing to the old (dead) instance, causing
+    // highlighting to fail. This ensures the editor always talks to the living instance.
+    this.updateEditorCallbacks();
   }
 
   /**
@@ -366,10 +376,14 @@ export class PlaybackElement extends MarkdownRenderChild {
         view.setContent(
           this.noteEditor.getSource(),
           async (newSource: string) => {
-            // Live update: save and re-render
+            // 1. Update internal state
             this.noteEditor.setSource(newSource);
-            await this.updateFileWithSource(newSource);
+            
+            // 2. Visual update IMMEDIATELY (responsive UI)
             this.reRender();
+            
+            // 3. Persist to disk (background)
+            await this.updateFileWithSource(newSource);
           },
           (startChar: number, endChar: number) => {
             // Selection in editor: highlight notes in sheet
@@ -441,10 +455,17 @@ export class PlaybackElement extends MarkdownRenderChild {
       // Update callbacks without touching content (preserves cursor position)
       view.updateCallbacks(
         async (newSource: string) => {
-          // Live update: save and re-render
+          // 1. Update internal state
           this.noteEditor.setSource(newSource);
-          await this.updateFileWithSource(newSource);
+          
+          // 2. Visual update IMMEDIATELY (don't await save)
+          // This keeps the UI responsive while Obsidian processes the file in the background.
+          // Obsidian will eventually kill this instance and run onload() again after the save,
+          // but the user won't notice because we already reRendered.
           this.reRender();
+          
+          // 3. Persist to disk (happens in background)
+          await this.updateFileWithSource(newSource);
         },
         (startChar: number, endChar: number) => {
           // Selection in editor: highlight notes in sheet
@@ -683,25 +704,25 @@ export class PlaybackElement extends MarkdownRenderChild {
     
     const { userOptions } = this.parseOptionsAndSource();
     
-    // CRITICAL FIX: Remove the old wrapper completely and create a fresh one
-    // This ensures abcjs properly populates elemset references
-    if (this.sheetWrapper && this.sheetWrapper.parentElement) {
-      this.sheetWrapper.remove();
-    }
-    
-    // Create a fresh wrapper for re-rendering
-    this.sheetWrapper = document.createElement('div');
-    this.sheetWrapper.addClass('abcjs-sheet-wrapper');
-    
-    // Insert before the controls (or at the end if controls don't exist)
-    const buttonsContainer = this.el.querySelector('.abcjs-controls');
-    if (buttonsContainer) {
-      this.el.insertBefore(this.sheetWrapper, buttonsContainer);
-    } else {
-      this.el.appendChild(this.sheetWrapper);
+    // CRITICAL FIX: Reuse the existing wrapper instead of destroying it
+    // abcjs handles clearing the innerHTML automatically during render
+    // Removing and recreating causes a race condition where the browser hasn't
+    // finished layout calculations, leading to empty elemset arrays
+    if (!this.sheetWrapper) {
+      // Only create on first render
+      this.sheetWrapper = document.createElement('div');
+      this.sheetWrapper.addClass('abcjs-sheet-wrapper');
+      
+      const buttonsContainer = this.el.querySelector('.abcjs-controls');
+      if (buttonsContainer) {
+        this.el.insertBefore(this.sheetWrapper, buttonsContainer);
+      } else {
+        this.el.appendChild(this.sheetWrapper);
+      }
     }
     
     // Create fresh options with clickListener to force elemset population
+    // Use a new object to ensure abcjs doesn't carry over stale state
     const options = { 
       ...DEFAULT_OPTIONS, 
       ...userOptions,
@@ -710,7 +731,8 @@ export class PlaybackElement extends MarkdownRenderChild {
       clickListener: this.handleElementClick
     };
     
-    // Render into the fresh container (already in DOM, so elemset will be populated)
+    // Render into the STABLE container
+    // renderAbc will automatically clear the contents of sheetWrapper
     const renderResp = renderAbc(this.sheetWrapper, abcSource, options);
     
     // Restore checkbox state from source
