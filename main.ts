@@ -2,6 +2,7 @@ import { MarkdownPostProcessorContext, Plugin } from 'obsidian';
 import { PLAYBACK_CONTROLS_ID } from './cfg';
 import { PlaybackElement } from './playback_element';
 import { AbcEditorView, ABC_EDITOR_VIEW_TYPE } from './editor_view';
+import { globalAbcState } from './global_state';
 
 export default class MusicPlugin extends Plugin {
 	onload() {
@@ -19,6 +20,14 @@ export default class MusicPlugin extends Plugin {
 		unusedPlaybackControls.id = PLAYBACK_CONTROLS_ID;
 		unusedPlaybackControls.style.display = 'none';
 		document.body.appendChild(unusedPlaybackControls);
+		
+		// Close any leftover ABC editor views from previous session
+		// This ensures a clean state when Obsidian loads
+		this.app.workspace.onLayoutReady(() => {
+			this.app.workspace.detachLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+			// Reset global state
+			globalAbcState.reset();
+		});
 	}
 
 	onunload() {

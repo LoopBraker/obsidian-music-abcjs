@@ -4,6 +4,7 @@ import { AUDIO_PARAMS, DEFAULT_OPTIONS, OPTIONS_REGEX, PLAYBACK_CONTROLS_ID, SYN
 import { NoteHighlighter, togglePlayingHighlight } from './note_highlighter';
 import { NoteEditor } from './note_editor';
 import { AbcEditorView, ABC_EDITOR_VIEW_TYPE } from './editor_view';
+import { globalAbcState } from './global_state';
 
 /**
  * This class abstraction is needed to support load/unload hooks
@@ -102,6 +103,18 @@ export class PlaybackElement extends MarkdownRenderChild {
     // The editor view still has callbacks pointing to the old (dead) instance, causing
     // highlighting to fail. This ensures the editor always talks to the living instance.
     this.updateEditorCallbacks();
+    
+    // 7. Check if we need to reopen the editor after a file write
+    const preserve = globalAbcState.getPreserveEditor();
+    const sourcePath = (this.ctx as any)?.sourcePath;
+    const lineStart = this.ctx?.getSectionInfo(this.el)?.lineStart;
+    
+    if (preserve && preserve.path === sourcePath && preserve.lineStart === lineStart) {
+      // This block was just reloaded after removing %%allowDrag
+      // Reopen the editor programmatically
+      globalAbcState.clearPreserveEditor();
+      this.openEditorProgrammatically(preserve.source);
+    }
   }
 
   /**
@@ -120,6 +133,25 @@ export class PlaybackElement extends MarkdownRenderChild {
     // CHANGE: Stop our own components directly
     this.timingCallbacks?.stop();
     this.midiBuffer.stop();
+    
+    // Clear this block from global state
+    globalAbcState.clearBlock(this);
+    
+    // Check if we should preserve the editor across this unload
+    const app = (window as any).app as App;
+    const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+    
+    const preserve = globalAbcState.getPreserveEditor();
+    const sourcePath = (this.ctx as any)?.sourcePath;
+    const lineStart = this.ctx?.getSectionInfo(this.el)?.lineStart;
+    const isPreserveForThis = preserve && preserve.path === sourcePath && preserve.lineStart === lineStart;
+    
+    if (!isPreserveForThis && leaves.length > 0) {
+      // Normal unload - close the editor
+      leaves[0].detach();
+    }
+    // else: We're being unloaded because of an intentional file write.
+    // Keep the editor open. The new instance will reattach to it in onload.
   }
 
   parseOptionsAndSource(): { userOptions: Record<string, any>, source: string } {
@@ -274,10 +306,10 @@ export class PlaybackElement extends MarkdownRenderChild {
   }
   
   private updateEditorButtonState(): void {
-    const app = (window as any).app as App;
-    const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+    // Only highlight the button if THIS block has the editor open
+    const isThisBlockActive = globalAbcState.isActiveEditor(this);
     
-    if (leaves.length > 0 && this.editorButton) {
+    if (isThisBlockActive && this.editorButton) {
       this.editorButton.style.backgroundColor = 'var(--interactive-accent)';
       this.editorButton.style.color = 'var(--text-on-accent)';
     } else if (this.editorButton) {
@@ -361,8 +393,25 @@ export class PlaybackElement extends MarkdownRenderChild {
       // Update button visual state
       this.editorButton.style.backgroundColor = '';
       this.editorButton.style.color = '';
+      
+      // Clear from global state
+      globalAbcState.setActiveEditor(null);
     } else {
-      // FIRST: Open the editor before making any changes
+      // Store whether we need to clean up dragging
+      const hadDraggingEnabled = this.draggingEnabled;
+      
+      // FIRST: If THIS block has dragging enabled, disable it synchronously (but don't save yet)
+      if (this.draggingEnabled) {
+        this.draggingCheckbox.checked = false;
+        this.draggingEnabled = false;
+        globalAbcState.setActiveDragging(null);
+      }
+      
+      // Register this block as having the active editor
+      // This will close any other editor that might be open
+      globalAbcState.setActiveEditor(this);
+      
+      // THEN: Open the editor
       const leaf = app.workspace.getRightLeaf(false);
       await leaf.setViewState({
         type: ABC_EDITOR_VIEW_TYPE,
@@ -373,8 +422,16 @@ export class PlaybackElement extends MarkdownRenderChild {
       const leaves2 = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
       if (leaves2.length > 0) {
         const view = leaves2[0].view as AbcEditorView;
+        
+        // If dragging was enabled, clean the source BEFORE setting content
+        let sourceToSet = this.noteEditor.getSource();
+        if (hadDraggingEnabled && sourceToSet.includes('%%allowDrag')) {
+          sourceToSet = sourceToSet.replace(/%%allowDrag\n?/g, '');
+          this.noteEditor.setSource(sourceToSet);
+        }
+        
         view.setContent(
-          this.noteEditor.getSource(),
+          sourceToSet,
           async (newSource: string) => {
             // 1. Update internal state
             this.noteEditor.setSource(newSource);
@@ -398,23 +455,27 @@ export class PlaybackElement extends MarkdownRenderChild {
         this.editorButton.style.backgroundColor = 'var(--interactive-accent)';
         this.editorButton.style.color = 'var(--text-on-accent)';
         
-        // THEN: If dragging is enabled, remove %%allowDrag from the file
-        if (this.draggingEnabled) {
-          this.draggingCheckbox.checked = false;
-          this.draggingEnabled = false;
+        // If we had dragging enabled, we need to save the cleaned source to file
+        // Set preserve flag so the new instance reopens the editor after reload
+        if (hadDraggingEnabled) {
+          const sourcePath = (this.ctx as any).sourcePath;
+          const sectionInfo = this.ctx?.getSectionInfo(this.el);
+          const lineStart = sectionInfo?.lineStart ?? -1;
           
-          let currentSource = this.noteEditor.getSource();
-          // Remove %%allowDrag directive
-          currentSource = currentSource.replace(/%%allowDrag\n?/g, '');
+          // Tell global state to preserve the editor across the file write
+          globalAbcState.setPreserveEditor({
+            path: sourcePath,
+            lineStart: lineStart,
+            source: sourceToSet
+          });
           
-          // Update the source in noteEditor
-          this.noteEditor.setSource(currentSource);
+          // Now save to file - this will cause Obsidian to reload the block
+          await this.updateFileWithSource(sourceToSet);
           
-          // Update the editor view content
-          view.updateContent(currentSource);
-          
-          // Save to file to ensure %%allowDrag is removed
-          await this.updateFileWithSource(currentSource);
+          // Set timeout fallback to clear flag if something goes wrong
+          setTimeout(() => {
+            globalAbcState.clearPreserveEditor();
+          }, 2000);
         }
       }
     }
@@ -500,6 +561,10 @@ export class PlaybackElement extends MarkdownRenderChild {
     
     // NEW: If enabling dragging, close the editor if it's open
     if (this.draggingEnabled) {
+      // Register this block as having dragging enabled
+      // This will disable dragging on any other block
+      globalAbcState.setActiveDragging(this);
+      
       const app = (window as any).app as App;
       const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
       
@@ -510,7 +575,13 @@ export class PlaybackElement extends MarkdownRenderChild {
         // Update editor button visual state
         this.editorButton.style.backgroundColor = '';
         this.editorButton.style.color = '';
+        
+        // Clear from global state
+        globalAbcState.setActiveEditor(null);
       }
+    } else {
+      // Clear from global state when disabling
+      globalAbcState.setActiveDragging(null);
     }
     
     let currentSource = this.noteEditor.getSource();
@@ -917,6 +988,98 @@ export class PlaybackElement extends MarkdownRenderChild {
             return this.midiBuffer.prime();
         })
         .catch(console.warn.bind(console));
+    }
+  }
+  
+  /**
+   * Public methods called by global state manager
+   */
+  
+  public closeEditorSilently(): void {
+    const app = (window as any).app as App;
+    const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+    
+    if (leaves.length > 0) {
+      leaves[0].detach();
+    }
+    
+    // Update button visual state
+    if (this.editorButton) {
+      this.editorButton.style.backgroundColor = '';
+      this.editorButton.style.color = '';
+    }
+  }
+  
+  public disableDraggingSilently(): void {
+    if (!this.draggingEnabled) return;
+    
+    this.draggingEnabled = false;
+    
+    if (this.draggingCheckbox) {
+      this.draggingCheckbox.checked = false;
+    }
+    
+    let currentSource = this.noteEditor.getSource();
+    // Remove %%allowDrag directive
+    currentSource = currentSource.replace(/%%allowDrag\n?/g, '');
+    
+    // Update the source in noteEditor
+    this.noteEditor.setSource(currentSource);
+    
+    // Don't save to file to avoid triggering reload
+    // The user's action on another block will handle the save
+    
+    this.reRender();
+  }
+  
+  private async openEditorProgrammatically(sourceToSet: string): Promise<void> {
+    const app = (window as any).app as App;
+    
+    // Register this block as having the active editor
+    globalAbcState.setActiveEditor(this);
+    
+    // Check if editor is already open
+    let leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+    
+    if (leaves.length === 0) {
+      // Open the editor
+      const leaf = app.workspace.getRightLeaf(false);
+      await leaf.setViewState({
+        type: ABC_EDITOR_VIEW_TYPE,
+        active: true,
+      });
+      
+      leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+    }
+    
+    if (leaves.length > 0) {
+      const view = leaves[0].view as AbcEditorView;
+      view.setContent(
+        sourceToSet,
+        async (newSource: string) => {
+          // 1. Update internal state
+          this.noteEditor.setSource(newSource);
+          
+          // 2. Visual update IMMEDIATELY (responsive UI)
+          this.reRender();
+          
+          // 3. Persist to disk (background)
+          await this.updateFileWithSource(newSource);
+        },
+        (startChar: number, endChar: number) => {
+          // Selection in editor: highlight notes in sheet
+          this.highlightNotesInRange(startChar, endChar);
+        }
+      );
+      
+      // Reveal the leaf (bring it to front)
+      app.workspace.revealLeaf(leaves[0]);
+      
+      // Update button visual state
+      if (this.editorButton) {
+        this.editorButton.style.backgroundColor = 'var(--interactive-accent)';
+        this.editorButton.style.color = 'var(--text-on-accent)';
+      }
     }
   }
 }
