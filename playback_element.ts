@@ -588,57 +588,75 @@ export class PlaybackElement extends MarkdownRenderChild {
       return;
     }
     
-    // Handle note selection for playback (only when not playing)
-    if (!this.isPlaying && abcElem && (abcElem.el_type === 'note' || abcElem.el_type === 'rest')) {
-      console.log('Clicked element:', abcElem.el_type, 'at startChar:', abcElem.startChar);
+    // Handle note/element clicks
+    if (abcElem && (abcElem.el_type === 'note' || abcElem.el_type === 'rest')) {
+      console.log('Clicked element:', abcElem.el_type, 'at startChar:', abcElem.startChar, 'endChar:', abcElem.endChar);
       
-      // Highlight corresponding text in editor if open
-      if (abcElem.startChar !== undefined && abcElem.endChar !== undefined) {
+      // ALWAYS highlight in editor if open (regardless of playing state)
+      // Check for valid character positions (abcjs sometimes returns -1 for elements without source position)
+      if (abcElem.startChar !== undefined && abcElem.startChar >= 0 && abcElem.endChar !== undefined) {
         const app = (window as any).app as App;
         const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+        console.log('Found editor leaves:', leaves.length);
+        
         if (leaves.length > 0) {
           const view = leaves[0].view as AbcEditorView;
+          console.log('Editor view found, calling highlightRange');
           view.highlightRange(abcElem.startChar, abcElem.endChar);
+        } else {
+          console.log('No editor view open');
         }
-      }
-      
-      // Get timing information from the visualObj
-      if (!this.visualObj) {
-        console.warn('No visualObj available');
-        return;
-      }
-      
-      // Access noteTimings from the TimingCallbacks instance
-      if (!this.timingCallbacks || !this.timingCallbacks.noteTimings) {
-        console.warn('No timing information available');
-        return;
-      }
-      
-      // Find the timing info for the clicked element using startChar
-      const noteTiming = this.timingCallbacks.noteTimings.find(
-        timing => timing && timing.startChar === abcElem.startChar
-      );
-      
-      console.log('Found timing:', noteTiming);
-      
-      if (noteTiming && noteTiming.milliseconds != null) {
-        this.selectedNoteStartTime = noteTiming.milliseconds;
-        
-        // Visual feedback: highlight the selected note
-        const previousSelected = this.el.querySelector('.abcjs-selected-note');
-        if (previousSelected) {
-          previousSelected.classList.remove('abcjs-selected-note');
-        }
-        
-        if (abcElem.abselem && abcElem.abselem.elemset) {
-          abcElem.abselem.elemset.forEach((elem: SVGElement) => {
-            elem.classList.add('abcjs-selected-note');
-          });
-        }
-        
-        console.log(`Note selected at ${this.selectedNoteStartTime}ms for playback`);
       } else {
-        console.warn('Could not find timing for startChar:', abcElem.startChar);
+        console.log('Invalid character positions:', {
+          startChar: abcElem.startChar,
+          endChar: abcElem.endChar,
+          startDefined: abcElem.startChar !== undefined,
+          startValid: abcElem.startChar >= 0,
+          endDefined: abcElem.endChar !== undefined
+        });
+      }
+      
+      // Handle note selection for playback (only when not playing)
+      if (!this.isPlaying) {
+        
+        // Get timing information from the visualObj for playback
+        if (!this.visualObj) {
+          console.warn('No visualObj available');
+          return;
+        }
+        
+        // Access noteTimings from the TimingCallbacks instance
+        if (!this.timingCallbacks || !this.timingCallbacks.noteTimings) {
+          console.warn('No timing information available');
+          return;
+        }
+        
+        // Find the timing info for the clicked element using startChar
+        const noteTiming = this.timingCallbacks.noteTimings.find(
+          timing => timing && timing.startChar === abcElem.startChar
+        );
+        
+        console.log('Found timing:', noteTiming);
+        
+        if (noteTiming && noteTiming.milliseconds != null) {
+          this.selectedNoteStartTime = noteTiming.milliseconds;
+          
+          // Visual feedback: highlight the selected note
+          const previousSelected = this.el.querySelector('.abcjs-selected-note');
+          if (previousSelected) {
+            previousSelected.classList.remove('abcjs-selected-note');
+          }
+          
+          if (abcElem.abselem && abcElem.abselem.elemset) {
+            abcElem.abselem.elemset.forEach((elem: SVGElement) => {
+              elem.classList.add('abcjs-selected-note');
+            });
+          }
+          
+          console.log(`Note selected at ${this.selectedNoteStartTime}ms for playback`);
+        } else {
+          console.warn('Could not find timing for startChar:', abcElem.startChar);
+        }
       }
     }
   };

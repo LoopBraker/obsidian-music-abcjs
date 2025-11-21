@@ -110,10 +110,49 @@ export class AbcEditorView extends ItemView {
   }
 
   highlightRange(startChar: number, endChar: number): void {
-    if (this.textarea) {
-      this.textarea.focus();
-      this.textarea.setSelectionRange(startChar, endChar);
+    if (!this.textarea) {
+      return;
     }
+    
+    // 1. Ensure indices are within bounds
+    const maxLength = this.textarea.value.length;
+    const safeStart = Math.max(0, Math.min(startChar, maxLength));
+    const safeEnd = Math.max(0, Math.min(endChar, maxLength));
+    
+    // 2. CRITICAL FIX: Tell Obsidian to make this sidebar leaf active/visible
+    // If this is hidden behind another tab, this brings it to front.
+    // If it's visible but not focused, this prepares it for focus.
+    // @ts-ignore: accessing app on ItemView
+    if (this.app && this.app.workspace) {
+       // @ts-ignore
+       this.app.workspace.revealLeaf(this.leaf);
+    }
+
+    // 3. CRITICAL FIX: Use setTimeout to decouple from the click event
+    // When you click the SVG, the browser is handling a MouseEvent on the SVG.
+    // We need to wait for that event bubble to finish before forcefully 
+    // moving focus to the textarea, otherwise the browser might snap focus back.
+    setTimeout(() => {
+        this.textarea.focus();
+        this.textarea.setSelectionRange(safeStart, safeEnd);
+        
+        // 4. Scroll logic (Calculate pixels)
+        const textBeforeSelection = this.textarea.value.substring(0, safeStart);
+        const linesBefore = textBeforeSelection.split('\n').length;
+        
+        // Get the actual line height from computed styles for accuracy
+        const computedStyle = window.getComputedStyle(this.textarea);
+        const lineHeight = parseInt(computedStyle.lineHeight) || 20;
+        
+        // Center the selection vertically
+        const textAreaHeight = this.textarea.clientHeight;
+        const targetScroll = Math.max(0, (linesBefore * lineHeight) - (textAreaHeight / 2));
+        
+        this.textarea.scrollTo({
+            top: targetScroll,
+            behavior: 'smooth'
+        });
+    }, 10); // 10ms is usually enough to let the click event finish
   }
 
   updateCallbacks(
