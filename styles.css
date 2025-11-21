@@ -243,6 +243,39 @@
   font-size: var(--font-ui-medium);
 }
 
+/* Template Selector */
+.abc-template-selector {
+  padding: 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.abc-template-label {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.abc-template-dropdown {
+  flex: 1;
+  padding: 4px 8px;
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.abc-template-dropdown:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.abc-template-dropdown:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
 /* CodeMirror Container */
 .abc-codemirror-container {
   flex: 1;
@@ -318,6 +351,34 @@
   border-radius: var(--radius-s);
   resize: none;
   box-sizing: border-box;
+}
+
+/* Folder Suggestions */
+.abc-folder-suggestions {
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  box-shadow: var(--shadow-s);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+  margin-top: 2px;
+}
+
+.abc-folder-suggestion-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+}
+
+.abc-folder-suggestion-item:hover,
+.abc-folder-suggestion-item.is-selected {
+  background-color: var(--background-modifier-hover);
+}
+
+.abc-folder-suggestion-item:active {
+  background-color: var(--background-modifier-active-hover);
 }
 
 .abc-editor-view-textarea:focus {

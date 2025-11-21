@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile } from 'obsidian';
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, rectangularSelection, crosshairCursor, highlightActiveLine } from '@codemirror/view';
 import { EditorState, EditorSelection } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -15,6 +15,8 @@ export class AbcEditorView extends ItemView {
   private currentContent: string = '';
   private updateTimeout: NodeJS.Timeout | null = null;
   private editorContainer: HTMLElement | null = null;
+  private templateContainer: HTMLElement | null = null;
+  private templateDropdown: HTMLSelectElement | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -39,6 +41,10 @@ export class AbcEditorView extends ItemView {
 
     const header = container.createDiv({ cls: 'abc-editor-view-header' });
     header.createEl('h4', { text: 'ABC Music Code Editor' });
+
+    // Create template selector container
+    this.templateContainer = container.createDiv({ cls: 'abc-template-selector' });
+    await this.createTemplateSelector();
 
     // Create container for CodeMirror
     this.editorContainer = container.createDiv({ cls: 'abc-codemirror-container' });
@@ -231,5 +237,112 @@ export class AbcEditorView extends ItemView {
     // Update callbacks without touching the content
     this.onChange = onChange;
     this.onSelectionChange = onSelectionChange || null;
+  }
+
+  private async createTemplateSelector(): Promise<void> {
+    if (!this.templateContainer) return;
+
+    this.templateContainer.empty();
+
+    // Get plugin settings
+    const app = (this.app as any);
+    const plugin = app.plugins?.plugins?.['music-code-blocks'];
+    const templatesFolder = plugin?.settings?.templatesFolder;
+
+    if (!templatesFolder) {
+      return; // No templates folder configured
+    }
+
+    // Find all markdown files in the templates folder
+    const files = this.app.vault.getMarkdownFiles();
+    const templateFiles = files.filter(file => 
+      file.path.startsWith(templatesFolder) && file.path.endsWith('.md')
+    );
+
+    if (templateFiles.length === 0) {
+      return; // No templates found
+    }
+
+    // Create dropdown
+    const label = this.templateContainer.createEl('label', { 
+      text: 'Load Template: ',
+      cls: 'abc-template-label'
+    });
+
+    this.templateDropdown = this.templateContainer.createEl('select', {
+      cls: 'abc-template-dropdown'
+    });
+
+    // Add default option
+    this.templateDropdown.createEl('option', {
+      text: '-- Select a template --',
+      value: ''
+    });
+
+    // Add template files
+    for (const file of templateFiles) {
+      const fileName = file.basename;
+      this.templateDropdown.createEl('option', {
+        text: fileName,
+        value: file.path
+      });
+    }
+
+    // Handle template selection
+    this.templateDropdown.addEventListener('change', async () => {
+      const selectedPath = this.templateDropdown?.value;
+      if (selectedPath) {
+        await this.loadTemplate(selectedPath);
+        // Reset dropdown
+        if (this.templateDropdown) {
+          this.templateDropdown.value = '';
+        }
+      }
+    });
+  }
+
+  private async loadTemplate(filePath: string): Promise<void> {
+    try {
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (!(file instanceof TFile)) {
+        console.error('Template file not found:', filePath);
+        return;
+      }
+
+      const content = await this.app.vault.read(file);
+      
+      // Extract content from music-abc code block
+      const codeBlockRegex = /```music-abc\s*\n([\s\S]*?)```/;
+      const match = content.match(codeBlockRegex);
+      
+      if (match && match[1]) {
+        const templateContent = match[1].trim();
+        
+        // Update editor content
+        if (this.editorView) {
+          this.editorView.dispatch({
+            changes: {
+              from: 0,
+              to: this.editorView.state.doc.length,
+              insert: templateContent,
+            },
+            selection: EditorSelection.cursor(0),
+          });
+          
+          // Trigger onChange callback
+          if (this.onChange) {
+            this.onChange(templateContent);
+          }
+        }
+      } else {
+        console.warn('No music-abc code block found in template:', filePath);
+      }
+    } catch (error) {
+      console.error('Error loading template:', error);
+    }
+  }
+
+  async refreshTemplateSelector(): Promise<void> {
+    await this.createTemplateSelector();
   }
 }

@@ -1,6 +1,6 @@
 import { MidiBuffer, TuneObject, renderAbc, synth, SynthOptions, TimingCallbacks, AnimationOptions } from 'abcjs';
 import { MarkdownRenderChild, MarkdownPostProcessorContext, App } from 'obsidian';
-import { AUDIO_PARAMS, DEFAULT_OPTIONS, OPTIONS_REGEX, PLAYBACK_CONTROLS_ID, SYNTH_INIT_OPTIONS } from './cfg';
+import { AUDIO_PARAMS, DEFAULT_OPTIONS, OPTIONS_REGEX, PLAYBACK_CONTROLS_ID, getSynthInitOptions } from './cfg';
 import { NoteHighlighter, togglePlayingHighlight } from './note_highlighter';
 import { NoteEditor } from './note_editor';
 import { AbcEditorView, ABC_EDITOR_VIEW_TYPE } from './editor_view';
@@ -195,7 +195,12 @@ export class PlaybackElement extends MarkdownRenderChild {
       }
     }
 
-    const finalAudioParams: SynthOptions = { ...AUDIO_PARAMS, ...audioParamsFromUser, ...SYNTH_INIT_OPTIONS };
+    // Get plugin settings for soundFont
+    const app = (window as any).app as any;
+    const plugin = app.plugins?.plugins?.['music-code-blocks'];
+    const soundFont = plugin?.settings?.soundFont || 'MusyngKite';
+
+    const finalAudioParams: SynthOptions = { ...AUDIO_PARAMS, ...audioParamsFromUser, ...getSynthInitOptions(soundFont) };
 
     // Define the animation options with callbacks
     const animationOptions: AnimationOptions = {

@@ -3,9 +3,14 @@ import { PLAYBACK_CONTROLS_ID } from './cfg';
 import { PlaybackElement } from './playback_element';
 import { AbcEditorView, ABC_EDITOR_VIEW_TYPE } from './editor_view';
 import { globalAbcState } from './global_state';
+import { MusicSettingTab, MusicPluginSettings, DEFAULT_SETTINGS } from './settings';
 
 export default class MusicPlugin extends Plugin {
-	onload() {
+	settings: MusicPluginSettings;
+
+	async onload() {
+		await this.loadSettings();
+
 		// Register the ABC editor view
 		this.registerView(
 			ABC_EDITOR_VIEW_TYPE,
@@ -14,6 +19,9 @@ export default class MusicPlugin extends Plugin {
 
 		this.registerMarkdownCodeBlockProcessor('abc', this.codeProcessor);
 		this.registerMarkdownCodeBlockProcessor('music-abc', this.codeProcessor);
+
+		// Add settings tab
+		this.addSettingTab(new MusicSettingTab(this.app, this));
 
 		// Although unused by us, a valid DOM element is needed to create a SynthController
 		const unusedPlaybackControls = document.createElement('aside');
@@ -35,6 +43,14 @@ export default class MusicPlugin extends Plugin {
 		
 		// Detach all ABC editor views
 		this.app.workspace.detachLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+	}
+
+	async loadSettings() {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+	}
+
+	async saveSettings() {
+		await this.saveData(this.settings);
 	}
 
 	async codeProcessor(source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) {
