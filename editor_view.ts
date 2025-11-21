@@ -4,7 +4,7 @@ import { EditorState, EditorSelection } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab, toggleComment } from '@codemirror/commands';
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
-import { bracketMatching, indentOnInput, StreamLanguage } from '@codemirror/language';
+import { bracketMatching, indentOnInput, StreamLanguage, foldGutter, foldService } from '@codemirror/language';
 import { Tag } from '@lezer/highlight';
 
 export const ABC_EDITOR_VIEW_TYPE = 'abc-music-editor';
@@ -56,6 +56,42 @@ const toggleAbcComment = (view: EditorView): boolean => {
   
   return true;
 };
+
+// Custom fold service for ABC notation using %- markers
+const abcFoldService = foldService.of((state, from, to) => {
+  const line = state.doc.lineAt(from);
+  const lineText = line.text;
+  
+  // Check if this line starts with %-
+  if (lineText.trim().startsWith('%=')) {
+    // Find the next %- line
+    let endLine = line.number + 1;
+    let foldEnd = line.to;
+    
+    while (endLine <= state.doc.lines) {
+      const nextLine = state.doc.line(endLine);
+      if (nextLine.text.trim().startsWith('%=')) {
+        // Found the next fold marker - fold up to the line before it
+        foldEnd = state.doc.line(endLine - 1).to;
+        break;
+      }
+      endLine++;
+      
+      // If we reach the end of document, fold to end
+      if (endLine > state.doc.lines) {
+        foldEnd = state.doc.length;
+        break;
+      }
+    }
+    
+    // Only create fold if there's content to fold
+    if (foldEnd > line.to) {
+      return { from: line.to, to: foldEnd };
+    }
+  }
+  
+  return null;
+});
 
 // Define ABC notation language for CodeMirror
 const abcLanguage = StreamLanguage.define({
@@ -127,6 +163,8 @@ export class AbcEditorView extends ItemView {
         doc: this.currentContent,
         extensions: [
           abcLanguage,
+          abcFoldService,
+          foldGutter(),
           lineNumbers(),
           highlightActiveLineGutter(),
           highlightSpecialChars(),
