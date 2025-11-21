@@ -1,12 +1,84 @@
 import { ItemView, WorkspaceLeaf, TFile } from 'obsidian';
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, rectangularSelection, crosshairCursor, highlightActiveLine } from '@codemirror/view';
 import { EditorState, EditorSelection } from '@codemirror/state';
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentWithTab, toggleComment } from '@codemirror/commands';
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
-import { bracketMatching, indentOnInput } from '@codemirror/language';
+import { bracketMatching, indentOnInput, StreamLanguage } from '@codemirror/language';
+import { Tag } from '@lezer/highlight';
 
 export const ABC_EDITOR_VIEW_TYPE = 'abc-music-editor';
+
+// Custom ABC comment toggle that handles %% directives correctly
+const toggleAbcComment = (view: EditorView): boolean => {
+  const { state } = view;
+  const changes = [];
+  
+  for (const range of state.selection.ranges) {
+    const line = state.doc.lineAt(range.from);
+    const lineText = line.text;
+    
+    // Check what type of line this is
+    if (lineText.match(/^%%%/)) {
+      // Line starts with %%% -> remove one % to make %%
+      changes.push({
+        from: line.from,
+        to: line.from + 3,
+        insert: '%%'
+      });
+    } else if (lineText.match(/^%%/)) {
+      // Line starts with %% -> add % to make %%%
+      changes.push({
+        from: line.from,
+        to: line.from,
+        insert: '%'
+      });
+    } else if (lineText.match(/^%/)) {
+      // Line starts with single % -> remove it
+      changes.push({
+        from: line.from,
+        to: line.from + 1,
+        insert: ''
+      });
+    } else {
+      // Normal line -> add single %
+      changes.push({
+        from: line.from,
+        to: line.from,
+        insert: '%'
+      });
+    }
+  }
+  
+  if (changes.length > 0) {
+    view.dispatch({ changes });
+  }
+  
+  return true;
+};
+
+// Define ABC notation language for CodeMirror
+const abcLanguage = StreamLanguage.define({
+  name: 'abc',
+  startState: () => ({}),
+  token: (stream: any) => {
+    // Check for comments: % but not %%
+    if (stream.sol() && stream.match(/^%(?!%)/)) {
+      stream.skipToEnd();
+      return 'comment';
+    }
+    
+    // Skip %% directives (not comments)
+    if (stream.match(/^%%/)) {
+      stream.skipToEnd();
+      return 'keyword';
+    }
+    
+    // Default: consume character
+    stream.next();
+    return null;
+  }
+});
 
 export class AbcEditorView extends ItemView {
   private editorView: EditorView | null = null;
@@ -54,6 +126,7 @@ export class AbcEditorView extends ItemView {
       state: EditorState.create({
         doc: this.currentContent,
         extensions: [
+          abcLanguage,
           lineNumbers(),
           highlightActiveLineGutter(),
           highlightSpecialChars(),
@@ -69,6 +142,7 @@ export class AbcEditorView extends ItemView {
           highlightActiveLine(),
           highlightSelectionMatches(),
           keymap.of([
+            { key: 'Mod-/', run: toggleAbcComment },
             ...closeBracketsKeymap,
             ...defaultKeymap,
             ...searchKeymap,
