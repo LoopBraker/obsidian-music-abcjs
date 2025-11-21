@@ -39,6 +39,7 @@ export class PlaybackElement extends MarkdownRenderChild {
   private visualObj: TuneObject | null = null;
   private noteEditor: NoteEditor;
   private sheetWrapper: HTMLElement | null = null;
+  private saveTimeout: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly el: HTMLElement,
@@ -127,20 +128,31 @@ export class PlaybackElement extends MarkdownRenderChild {
    * Not called when:
    * 1. Switching tabs to a different one (audio keeps playing)
    */
-  onunload() {
+  async onunload() {
     this.abortController.abort(); // dom event listeners
 
     // CHANGE: Stop our own components directly
     this.timingCallbacks?.stop();
     this.midiBuffer.stop();
     
+    // Clear any pending save
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+      this.saveTimeout = null;
+    }
+    
+    // If this block has the editor open, save its content before unloading
+    const app = (window as any).app as App;
+    const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+    if (leaves.length > 0 && globalAbcState.isActiveEditor(this)) {
+      const currentSource = this.noteEditor.getSource();
+      await this.updateFileWithSource(currentSource);
+    }
+    
     // Clear this block from global state
     globalAbcState.clearBlock(this);
     
     // Check if we should preserve the editor across this unload
-    const app = (window as any).app as App;
-    const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
-    
     const preserve = globalAbcState.getPreserveEditor();
     const sourcePath = (this.ctx as any)?.sourcePath;
     const lineStart = this.ctx?.getSectionInfo(this.el)?.lineStart;
@@ -392,7 +404,10 @@ export class PlaybackElement extends MarkdownRenderChild {
     const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
     
     if (leaves.length > 0) {
-      // Editor is open - close it
+      // Editor is open - save content before closing
+      const currentSource = this.noteEditor.getSource();
+      await this.updateFileWithSource(currentSource);
+      
       leaves[0].detach();
       
       // Update button visual state
@@ -444,8 +459,8 @@ export class PlaybackElement extends MarkdownRenderChild {
             // 2. Visual update IMMEDIATELY (responsive UI)
             this.reRender();
             
-            // 3. Persist to disk (background)
-            await this.updateFileWithSource(newSource);
+            // 3. DO NOT save to file while editing - only save when editor closes
+            // This prevents constant reloads while typing
           },
           (startChar: number, endChar: number) => {
             // Selection in editor: highlight notes in sheet
@@ -543,14 +558,11 @@ export class PlaybackElement extends MarkdownRenderChild {
           // 1. Update internal state
           this.noteEditor.setSource(newSource);
           
-          // 2. Visual update IMMEDIATELY (don't await save)
-          // This keeps the UI responsive while Obsidian processes the file in the background.
-          // Obsidian will eventually kill this instance and run onload() again after the save,
-          // but the user won't notice because we already reRendered.
+          // 2. Visual update IMMEDIATELY
           this.reRender();
           
-          // 3. Persist to disk (happens in background)
-          await this.updateFileWithSource(newSource);
+          // 3. DO NOT save to file while editing - only save when editor closes
+          // This prevents constant reloads while typing
         },
         (startChar: number, endChar: number) => {
           // Selection in editor: highlight notes in sheet
@@ -1000,6 +1012,15 @@ export class PlaybackElement extends MarkdownRenderChild {
    * Public methods called by global state manager
    */
   
+  public async closeEditor(): Promise<void> {
+    // Save current editor content to file before closing
+    const currentSource = this.noteEditor.getSource();
+    await this.updateFileWithSource(currentSource);
+    
+    // Now close the editor
+    this.closeEditorSilently();
+  }
+
   public closeEditorSilently(): void {
     const app = (window as any).app as App;
     const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
@@ -1068,8 +1089,8 @@ export class PlaybackElement extends MarkdownRenderChild {
           // 2. Visual update IMMEDIATELY (responsive UI)
           this.reRender();
           
-          // 3. Persist to disk (background)
-          await this.updateFileWithSource(newSource);
+          // 3. DO NOT save to file while editing - only save when editor closes
+          // This prevents constant reloads while typing
         },
         (startChar: number, endChar: number) => {
           // Selection in editor: highlight notes in sheet
