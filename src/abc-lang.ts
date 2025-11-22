@@ -64,12 +64,14 @@ function abcCompletions(context: CompletionContext) {
   const isInVoiceLine = /^V:\s*\S/.test(lineText)  // V: or V:X (with or without space)
   const isInMidiLine = /^%%MIDI\s+/.test(lineText)
   const isInAnyInfoLine = /^[A-Za-z]:\s+/.test(lineText)
+  const lineStartsWithDirective = /^%%/.test(lineText)  // Line starts with directive
+  const hasDirectiveAlready = /^%%\w+/.test(lineText)  // Line already has a complete directive
   
   // Check if MIDI line already has an attribute (only one allowed)
   const midiHasAttribute = /^%%MIDI\s+\w+/.test(lineText)
   
-  // Complete directives starting with %%
-  if (word.text.startsWith("%%")) {
+  // Complete directives starting with %% (only if not already in an info line and no directive exists yet)
+  if (word.text.startsWith("%%") && !isInAnyInfoLine && !hasDirectiveAlready) {
     return {
       from: word.from,
       options: Array.from(validDirectives).map(d => ({ 
@@ -128,8 +130,8 @@ function abcCompletions(context: CompletionContext) {
     }
   }
   
-  // Complete info keys ONLY at start of line (not if already in an info line)
-  if (word.text.match(/^[A-Za-z]:?$/) && !isInAnyInfoLine) {
+  // Complete info keys ONLY at start of line (not if already in an info line or directive line)
+  if (word.text.match(/^[A-Za-z]:?$/) && !isInAnyInfoLine && !lineStartsWithDirective) {
     return {
       from: word.from,
       options: Array.from(validInfoKeys).map(k => ({ 
