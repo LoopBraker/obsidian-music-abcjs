@@ -20,6 +20,8 @@ VoiceLine {
 VoiceContent {
   ClefAssignment |
   ShiftAssignment |
+  StemAssignment |
+  PercKeyword |
   GenericAssignment |
   Identifier // Handles the "V1" or "V2" at start
 }
@@ -34,7 +36,17 @@ ShiftAssignment {
   @specialize<Identifier, "shift"> equalsWithSpaces (ValidShift | InvalidValue)
 }
 
-// Matches: name=value or name = value (for properties other than clef/shift)
+// Matches: stem=up or stem=down (valid) OR stem=invalid (invalid)
+StemAssignment {
+  @specialize<Identifier, "stem"> equalsWithSpaces (ValidStem | InvalidValue)
+}
+
+// Matches: perc (standalone keyword, no value)
+PercKeyword {
+  @specialize<Identifier, "perc">
+}
+
+// Matches: name=value or name = value (for properties other than clef/shift/stem)
 GenericAssignment {
   Identifier equalsWithSpaces AttributeValue
 }
@@ -86,6 +98,9 @@ InfoKey { ![V|\n] ":" }
   // Valid Shift (A through G)
   ValidShift { $[A-G]+ }
   
+  // Valid Stem directions
+  ValidStem { "auto" |"up" | "down" }
+  
   // A generic alphanumeric word (includes +/- for treble+8, treble-8)
   Identifier { (@asciiLetter | "+" | "-" | @digit)+ }
   
@@ -115,6 +130,7 @@ InfoKey { ![V|\n] ":" }
     InfoKey, 
     ValidClef, 
     ValidShift, 
+    ValidStem,
     Space,
     Identifier, 
     InvalidValue,

@@ -53,7 +53,7 @@ const validShiftNotes = /^[A-G]+$/
 
 // Autocompletion for directives and info keys
 function abcCompletions(context: CompletionContext) {
-  let word = context.matchBefore(/%%\w*|[A-Za-z]:?|clef=\w*|shift=\w*/)
+  let word = context.matchBefore(/%%\w*|[A-Za-z]:?|clef=\w*|shift=\w*|stem=\w*|perc/)
   if (!word) return null
   
   // Complete directives starting with %%
@@ -100,6 +100,18 @@ function abcCompletions(context: CompletionContext) {
         label: `shift=${n}`, 
         type: "property",
         info: "Shift note"
+      }))
+    }
+  }
+  
+  // Complete stem attribute
+  if (word.text.startsWith("stem=")) {
+    return {
+      from: word.from,
+      options: ["auto", "up", "down"].map(s => ({ 
+        label: `stem=${s}`, 
+        type: "property",
+        info: "Stem direction"
       }))
     }
   }
@@ -188,8 +200,11 @@ export const abcLanguage = LRLanguage.define({
         VoiceKey: t.keyword,                    // V: - purple
         "ClefAssignment/Identifier": t.propertyName,  // "clef" - blue
         "ShiftAssignment/Identifier": t.propertyName, // "shift" - blue
+        "StemAssignment/Identifier": t.propertyName,  // "stem" - blue
+        "PercKeyword/Identifier": t.propertyName,     // "perc" - blue
         ValidClef: t.atom,                      // "bass", "treble" - green/orange
         ValidShift: t.atom,                     // "A", "CD" - green/orange
+        ValidStem: t.atom,                      // "up", "down" - green/orange
         InvalidValue: t.invalid,                // Invalid values - red
         Identifier: t.variableName,             // V1, V2, etc - default
         GenericAssignment: t.propertyName,      // other key=value
