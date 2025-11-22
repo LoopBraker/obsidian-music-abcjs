@@ -42,9 +42,18 @@ const validInfoKeys = new Set([
     "V", "W", "X", "Z", "w"
 ])
 
+// Valid clef values for V: info line
+const validClefs = new Set([
+  "treble", "treble-8", "treble+8", "bass", "bass3",
+  "alto4", "alto", "alto2", "alto1", "none", "perc"
+])
+
+// Valid note names for shift attribute (A through G)
+const validShiftNotes = /^[A-G]+$/
+
 // Autocompletion for directives and info keys
 function abcCompletions(context: CompletionContext) {
-  let word = context.matchBefore(/%%\w*|[A-Za-z]:?/)
+  let word = context.matchBefore(/%%\w*|[A-Za-z]:?|clef=\w*|shift=\w*/)
   if (!word) return null
   
   // Complete directives starting with %%
@@ -67,6 +76,30 @@ function abcCompletions(context: CompletionContext) {
         label: `${k}:`, 
         type: "variable",
         info: "ABC info field"
+      }))
+    }
+  }
+  
+  // Complete clef values
+  if (word.text.startsWith("clef=")) {
+    return {
+      from: word.from,
+      options: Array.from(validClefs).map(c => ({ 
+        label: `clef=${c}`, 
+        type: "property",
+        info: "Clef type"
+      }))
+    }
+  }
+  
+  // Complete shift attribute
+  if (word.text.startsWith("shift=")) {
+    return {
+      from: word.from,
+      options: ["A", "B", "C", "D", "E", "F", "G"].map(n => ({ 
+        label: `shift=${n}`, 
+        type: "property",
+        info: "Shift note"
       }))
     }
   }
@@ -110,6 +143,21 @@ const abcLinter = linter(view => {
         })
       }
     }
+    
+    // Check VoiceKey tokens (V:)
+    if (node.name === "VoiceKey") {
+      const text = view.state.doc.sliceString(node.from, node.to)
+      const key = text.slice(0, -1) // Remove :
+      
+      if (!validInfoKeys.has(key)) {
+        diagnostics.push({
+          from: node.from,
+          to: node.to,
+          severity: "warning",
+          message: `Unknown info key: ${key}:`
+        })
+      }
+    }
   })
   
   // Check for blank lines (empty lines or lines with only whitespace)
@@ -136,7 +184,16 @@ export const abcLanguage = LRLanguage.define({
     props: [
       styleTags({
         DirectiveKeyword: t.keyword,            // %%keyword - purple
-        InfoKey: t.variableName,                // T:, M:, K: - purple/blue
+        InfoKey: t.typeName,                    // T:, M:, K: - blue
+        VoiceKey: t.keyword,                    // V: - purple
+        "ClefAssignment/Identifier": t.propertyName,  // "clef" - blue
+        "ShiftAssignment/Identifier": t.propertyName, // "shift" - blue
+        ValidClef: t.atom,                      // "bass", "treble" - green/orange
+        ValidShift: t.atom,                     // "A", "CD" - green/orange
+        InvalidValue: t.invalid,                // Invalid values - red
+        Identifier: t.variableName,             // V1, V2, etc - default
+        GenericAssignment: t.propertyName,      // other key=value
+        AttributeValue: t.string,               // generic values
         DirectiveArgs: t.string,                // arguments/values - green
         Comment: t.lineComment,                 // % comments - gray italic
         InlineComment: t.lineComment,           // % at end of line - gray italic

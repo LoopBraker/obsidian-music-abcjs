@@ -3,48 +3,117 @@
 line { 
   CommentedDirective | 
   DirectiveLine | 
-  InfoLine | 
+  VoiceLine |   // Specific rule for V: lines
+  InfoLine |    // Generic rule for T:, M:, etc.
   Comment | 
   Other 
 }
 
-// 1. Directives: %%keyword args...
-DirectiveLine { 
-  DirectiveKeyword 
-  ( Space DirectiveArgs? )? 
-  InlineComment? 
+// === 1. Voice Line (Strict Parsing) ===
+// Example: V: V1 clef=bass shift=C
+VoiceLine {
+  VoiceKey 
+  (Space VoiceContent)*
+  InlineComment?
 }
 
-// 2. Info Fields: T: Title, M: 4/4, etc.
+VoiceContent {
+  ClefAssignment |
+  ShiftAssignment |
+  GenericAssignment |
+  Identifier // Handles the "V1" or "V2" at start
+}
+
+// Matches: clef=bass (valid) OR clef=foo (invalid)
+ClefAssignment {
+  @specialize<Identifier, "clef"> "=" (ValidClef | InvalidValue)
+}
+
+// Matches: shift=C (valid) OR shift=Z (invalid)
+ShiftAssignment {
+  @specialize<Identifier, "shift"> "=" (ValidShift | InvalidValue)
+}
+
+// Matches: name=value (for properties other than clef/shift)
+GenericAssignment {
+  Identifier "=" AttributeValue
+}
+
+
+// === 2. Generic Info Line ===
+// Example: T: My Song
 InfoLine {
   InfoKey
   ( Space DirectiveArgs? )?
   InlineComment?
 }
 
+// === 3. Directives ===
+DirectiveLine { 
+  DirectiveKeyword 
+  ( Space DirectiveArgs? )? 
+  InlineComment? 
+}
+
+
 @tokens {
   newline { "\n" }
-
-  // Matches "%%" followed by any non-space characters
-  DirectiveKeyword { "%%" ![ \t%\n]+ }
-
-  // Matches a single letter followed by a colon (e.g., "T:", "M:") at start of line
-  InfoKey { @asciiLetter ":" }
   
-  // Explicit definition of Space to separate keywords from args
-  Space { $[\t ]+ }
+  // -- Keywords --
+  DirectiveKeyword { "%%" ![ \t%\n]+ }
+  
+  // Explicit V: key to separate it from generic infos
+  VoiceKey { "V:" } 
+  
+// Generic Info key (T:, K:, etc), but NOT V:
+InfoKey { ![V|\n] ":" }
 
-  // Arguments: Starts with a non-space char, continues until newline or %
-  DirectiveArgs { ![\s%\n] ![%\n]* }
+  Space { $[\t ]+ }
+  "="
+  
+  // -- Values --
+
+  // Valid Clefs (Exact match list)
+  ValidClef { 
+    "treble-8" | "treble+8" | "treble" | 
+    "bass3" | "bass" | 
+    "alto1" | "alto2" | "alto4" | "alto" | 
+    "none" | "perc" 
+  }
+
+  // Valid Shift (A through G)
+  ValidShift { $[A-G]+ }
+  
+  // A generic alphanumeric word (includes +/- for treble+8, treble-8)
+  Identifier { (@asciiLetter | "+" | "-" | @digit)+ }
+  
+  // Used for generic properties (name=SomethingElse)
+  AttributeValue { (@asciiLetter | "+" | "-" | @digit)+ }
+  
+  // Catch-all for invalid values in assignments (fallback)
+  InvalidValue { (@asciiLetter | "+" | "-" | @digit)+ }
+
+  // -- Generic Args (rest of line) --
+  DirectiveArgs { ![\s%\n=] ![%\n]* }
   
   CommentedDirective { "%%%" ![\n]* }
-  
   InlineComment { "%" ![\n]* }
-  
   Comment { "%" ![\n]* }
-  
-  // Catch-all for other lines (music data)
   Other { ![\n]+ }
   
-  @precedence { CommentedDirective, DirectiveKeyword, InfoKey, Comment, Other }
+  // Precedence: 
+  // 1. Look for V: first
+  // 2. Look for specific Valid tokens before generic Identifiers
+  @precedence { 
+    CommentedDirective, 
+    DirectiveKeyword, 
+    VoiceKey, 
+    InfoKey, 
+    ValidClef, 
+    ValidShift, 
+    Identifier, 
+    InvalidValue,
+    Comment, 
+    Other 
+  }
 }
