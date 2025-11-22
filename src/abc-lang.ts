@@ -3,63 +3,26 @@ import {LRLanguage, LanguageSupport, syntaxTree} from "@codemirror/language"
 import {styleTags, tags as t} from "@lezer/highlight"
 import {autocompletion, CompletionContext} from "@codemirror/autocomplete"
 import {linter, Diagnostic} from "@codemirror/lint"
-import {
-  infoFieldDefinitions,
-  directiveDefinitions,
-  voiceAttributeDefinitions,
+
+// Import modular ABC definitions
+import { validInfoKeys, infoFieldDefinitions } from "./abc-infofields"
+import { validDirectives, directiveDefinitions } from "./abc-directives"
+import { 
+  midiAttributes, 
   midiAttributeDefinitions,
+  validateMidiAttributeValue 
+} from "./abc-midi"
+import { 
+  voiceAttributes,
+  voiceAttributeDefinitions,
+  validClefs,
   clefDefinitions,
   directionDefinitions
-} from "./abc-definitions"
+} from "./abc-voices"
 
-// Valid ABC directives (without %% prefix)
-const validDirectives = new Set([
-  "MIDI",
-  //Page format
-  "pageheight", "pagewidth", "topmargin", "botmargin",
-    "leftmargin", "rightmargin", "indent", "landscape",
-    "staffwidth",
-  // Font directives
-  "titlefont", "subtitlefont", "composerfont", "partsfont", "tempofont",
-  "gchordfont", "headerfont", "historyfont", "footerfont",
-  "annotationfont", "infofont", "measurefont", "repeatfont",
-  "textfont", "voicefont", "vocalfont", "wordsfont",
-  // Inline font selectors (optional)
-  "setfont-1", "setfont-2", "setfont-3", "setfont-4",
-
-  // Spacing directives
-  "topspace", "titlespace", "titleleft", "subtitlespace", "textspace",
-  "aligncomposer", "musicspace", "composerspace", "wordsspace",
-  "vocalspace", "infospace", "partsspace", "staffsep",
-  "sysstaffsep", "barsperstaff", "parskipfac", "lineskipfac",
-  "stretchstaff", "stretchlast", "maxshrink", "maxstaffsep",
-  "maxsysstaffsep", "newpage", "scale", "staves", "vskip",
-  "splittune",
-
-  //Measures/Bars 
-  "measurefirst", "barnumbers", "measurenb", "measurebox",
-  "setbarnb","contbarnb","alignbars",
-
-  "score","percmap",
-
-
-])
-
-// Valid ABC info keys (without : suffix)
-const validInfoKeys = new Set([
-    "A", "B", "C", "D", "F", "G", "H", "I", "K",
-    "L", "M","m", "N", "O", "P", "Q", "R", "S","s", "T",
-    "V", "W", "X", "Z", "w"
-])
-
-// Valid clef values for V: info line
-const validClefs = new Set([
-  "treble", "treble-8", "treble+8", "bass", "bass3",
-  "alto4", "alto", "alto2", "alto1", "none", "perc"
-])
-
-// Valid note names for shift attribute (A through G)
-const validShiftNotes = /^[A-G]+$/
+// Add MIDI to directives set (special handling)
+const allDirectives = new Set(validDirectives)
+allDirectives.add("MIDI")
 
 // Autocompletion for directives and info keys
 function abcCompletions(context: CompletionContext) {
@@ -90,17 +53,12 @@ function abcCompletions(context: CompletionContext) {
     
     // Show suggestions if: right after %%MIDI with space, OR currently typing a word
     if (isMidiAttributeSlot || (word.text.match(/^\w*$/) && /^%%MIDI\s+/.test(lineText))) {
-      const midiAttributes = [
-        "program", "chordprog", "channel", "drum", 
-        "gchord", "transpose", "drumon", "drumoff"
-      ]
-      
       return {
         from: word.from,
         options: midiAttributes.map(attr => ({
-          label: attr,
+          label: attr.attribute,
           type: "property",
-          info: midiAttributeDefinitions[attr] || "MIDI attribute"
+          info: attr.description
         }))
       }
     }
@@ -123,7 +81,7 @@ function abcCompletions(context: CompletionContext) {
     const partialDirective = word.text.slice(2).toLowerCase()
     
     // Filter directives that match what's been typed so far
-    const matchingDirectives = Array.from(validDirectives).filter(d => 
+    const matchingDirectives = Array.from(allDirectives).filter(d => 
       d.toLowerCase().startsWith(partialDirective)
     )
     
@@ -132,24 +90,19 @@ function abcCompletions(context: CompletionContext) {
       options: matchingDirectives.map(d => ({ 
         label: `%%${d}`, 
         type: "keyword",
-        info: directiveDefinitions[d] || "ABC directive"
+        info: directiveDefinitions[d] || (d === "MIDI" ? "MIDI playback instructions" : "ABC directive")
       }))
     }
   }
   
   // If in a V: line, suggest voice attributes instead of info keys
   if (isInVoiceLine && word.text.match(/^\w+$/)) {
-    const voiceAttributes = [
-      "clef", "shift", "stem", "gstem", "lyrics", 
-      "dyn", "perc", "up", "down", "merge"
-    ]
-    
     return {
       from: word.from,
       options: voiceAttributes.map(attr => ({
-        label: attr,
+        label: attr.attribute,
         type: "property",
-        info: voiceAttributeDefinitions[attr] || "Voice attribute"
+        info: attr.description
       }))
     }
   }
@@ -253,7 +206,7 @@ const abcLinter = linter(view => {
       const text = view.state.doc.sliceString(node.from, node.to)
       const keyword = text.slice(2).trim() // Remove %% and trim
       
-      if (!validDirectives.has(keyword)) {
+      if (!allDirectives.has(keyword)) {
         diagnostics.push({
           from: node.from,
           to: node.to,

@@ -1,42 +1,48 @@
 /**
- * ABC Notation Definitions
- * Descriptions for info fields, directives, and attributes
- * Used for autocompletion hints and documentation
+ * ABC Directives Definitions
+ * Standard ABC notation directives (%%keyword) and their descriptions
  */
 
-// Info Field Definitions
-export const infoFieldDefinitions: Record<string, string> = {
-  "A": "Area or region of origin",
-  "B": "Book or source",
-  "C": "Composer",
-  "D": "Discography",
-  "F": "File URL",
-  "G": "Group",
-  "H": "History",
-  "I": "Instruction (for software) Example: I:score (1 2)",
-  "K": "Key signature (required)",
-  "L": "Default note length (e.g., 1/4, 1/8)",
-  "M": "Meter/time signature (e.g., 4/4, 3/4, C)",
-  "m": "Macro definition",
-  "N": "Notes",
-  "O": "Origin",
-  "P": "Parts order",
-  "Q": "Tempo (e.g., 1/4=120)",
-  "R": "Rhythm type",
-  "S": "Source",
-  "s": "Symbol definition",
-  "T": "Title (required)",
-  "V": "The V: field, followed by a voice name, indicates that the following music belongs to that voice. The voice name can be a number or a string (e.g. “Tenor”). The V: field can be written on a line by itself, or enclosed in square brackets at the start of a note line.",
-  "W": "Words (lyrics after tune)",
-  "w": "Words (lyrics aligned with notes)",
-  "X": "Reference number (required)",
-  "Z": "Transcription notes"
+export interface DirectiveConfig {
+  keyword: string
+  description: string
+  scope?: string  // page, tune, generation, etc.
+  defaultValue?: string
 }
 
-// Directive Definitions
-export const directiveDefinitions: Record<string, string> = {
-  "MIDI": "MIDI playback instructions",
+// Valid ABC directives (without %% prefix)
+export const validDirectives = new Set([
+  // Page format
+  "pageheight", "pagewidth", "topmargin", "botmargin",
+  "leftmargin", "rightmargin", "indent", "landscape",
+  "staffwidth",
   
+  // Font directives
+  "titlefont", "subtitlefont", "composerfont", "partsfont", "tempofont",
+  "gchordfont", "headerfont", "historyfont", "footerfont",
+  "annotationfont", "infofont", "measurefont", "repeatfont",
+  "textfont", "voicefont", "vocalfont", "wordsfont",
+  "setfont-1", "setfont-2", "setfont-3", "setfont-4",
+
+  // Spacing directives
+  "topspace", "titlespace", "titleleft", "subtitlespace", "textspace",
+  "aligncomposer", "musicspace", "composerspace", "wordsspace",
+  "vocalspace", "infospace", "partsspace", "staffsep",
+  "sysstaffsep", "barsperstaff", "parskipfac", "lineskipfac",
+  "stretchstaff", "stretchlast", "maxshrink", "maxstaffsep",
+  "maxsysstaffsep", "newpage", "scale", "staves", "vskip",
+  "splittune",
+
+  // Measures/Bars 
+  "barnumbers", "measurenb", "measurebox",
+  "setbarnb", "contbarnb", "alignbars",
+
+  // Other
+  "score", "percmap",
+])
+
+// Directive Definitions with descriptions
+export const directiveDefinitions: Record<string, string> = {
   // Page format
   "pageheight": "%%pageheight ⟨length⟩: sets the page height to ⟨length⟩. Default: 11 inches; scope: page; not available in abc2svg. For European A4 paper, the right value is 29.7cm.",
   "pagewidth": "%%pagewidth ⟨length⟩: sets the page width to ⟨length⟩. Default: 8.5 inches; scope: page; not available in abc2svg. For European A4 paper, the right value is 21cm.",
@@ -46,7 +52,7 @@ export const directiveDefinitions: Record<string, string> = {
   "rightmargin": "%%rightmargin ⟨length⟩: sets the page right margin to ⟨length⟩. Default: 1.8 cm; scope:page, restart.",
   "indent": "%%indent ⟨length⟩: sets the indentation for the first line or system to ⟨length⟩. Default: 0; scope: tune.",
   "landscape": "%%landscape ⟨logical⟩: if 1, sets the page layout as landscape. Default: 0; scope: page;",
-  "staffwidth": "%%staffwidth ⟨length⟩: used as an alternative to the %%pageheight and %%pagewidth di- rectives. Default: none; scope: generation.",
+  "staffwidth": "%%staffwidth ⟨length⟩: used as an alternative to the %%pageheight and %%pagewidth directives. Default: none; scope: generation.",
   
   // Font directives
   "titlefont": "Font for the title",
@@ -101,7 +107,6 @@ export const directiveDefinitions: Record<string, string> = {
   "splittune": "Split tune across pages",
   
   // Measures/Bars
-  "measurefirst": "Number of first measure",
   "barnumbers": "Show bar numbers",
   "measurenb": "Measure numbering interval",
   "measurebox": "Box around measure numbers",
@@ -109,54 +114,17 @@ export const directiveDefinitions: Record<string, string> = {
   "contbarnb": "Continue bar numbering",
   "alignbars": "Align bars across staves",
   
+  // Other
   "score": "Score layout definition",
   "percmap": "Percussion mapping"
 }
 
-// Voice Attribute Definitions
-export const voiceAttributeDefinitions: Record<string, string> = {
-  "clef": "Set the clef (treble, bass, alto, etc.)",
-  "shift": "Transpose by note name (A-G)",
-  "stem": "Force stem direction (up, down, auto)",
-  "gstem": "Grace note stem direction (up, down, auto)",
-  "lyrics": "Lyrics position (up, down, auto)",
-  "dyn": "Dynamics position (up, down, auto)",
-  "perc": "Percussion staff (no pitch)",
-  "up": "Stems up",
-  "down": "Stems down",
-  "merge": "Merge with previous voice"
+// Helper to check if a directive is valid
+export function isValidDirective(keyword: string): boolean {
+  return validDirectives.has(keyword)
 }
 
-// MIDI Attribute Definitions
-export const midiAttributeDefinitions: Record<string, string> = {
-  "program": "MIDI instrument number (0-127, 0=piano)",
-  "chordprog": "MIDI instrument for chords (0-127)",
-  "channel": "MIDI channel number (1-16)",
-  "drum": "Drum channel/pattern",
-  "gchord": "Guitar chord settings",
-  "transpose": "Transpose by semitones",
-  "drumon": "Enable drum channel",
-  "drumoff": "Disable drum channel"
-}
-
-// Clef Definitions
-export const clefDefinitions: Record<string, string> = {
-  "treble": "Treble clef (G clef, standard for high notes)",
-  "treble-8": "Treble clef down an octave",
-  "treble+8": "Treble clef up an octave",
-  "bass": "Bass clef (F clef, standard for low notes)",
-  "bass3": "Bass clef on 3rd line",
-  "alto": "Alto clef (C clef on 3rd line)",
-  "alto4": "Alto clef on 4th line",
-  "alto2": "Alto clef on 2nd line",
-  "alto1": "Alto clef on 1st line",
-  "none": "No clef (for percussion or rhythm)",
-  "perc": "Percussion clef"
-}
-
-// Direction/Stem Definitions
-export const directionDefinitions: Record<string, string> = {
-  "auto": "Automatic positioning",
-  "up": "Force upward",
-  "down": "Force downward"
+// Helper to get directive description
+export function getDirectiveDescription(keyword: string): string {
+  return directiveDefinitions[keyword] || "ABC directive"
 }
