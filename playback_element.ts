@@ -453,14 +453,14 @@ export class PlaybackElement extends MarkdownRenderChild {
         view.setContent(
           sourceToSet,
           async (newSource: string) => {
-            // 1. Update internal state
+            // Update internal state and live preview
             this.noteEditor.setSource(newSource);
-            
-            // 2. Visual update IMMEDIATELY (responsive UI)
             this.reRender();
-            
-            // 3. DO NOT save to file while editing - only save when editor closes
-            // This prevents constant reloads while typing
+          },
+          async (newSource: string) => {
+            // Save to file (called on editor close or reload)
+            this.noteEditor.setSource(newSource);
+            await this.updateFileWithSource(newSource);
           },
           (startChar: number, endChar: number) => {
             // Selection in editor: highlight notes in sheet
@@ -1083,14 +1083,14 @@ export class PlaybackElement extends MarkdownRenderChild {
       view.setContent(
         sourceToSet,
         async (newSource: string) => {
-          // 1. Update internal state
+          // Update internal state and live preview
           this.noteEditor.setSource(newSource);
-          
-          // 2. Visual update IMMEDIATELY (responsive UI)
           this.reRender();
-          
-          // 3. DO NOT save to file while editing - only save when editor closes
-          // This prevents constant reloads while typing
+        },
+        async (newSource: string) => {
+          // Save to file (called on editor close or reload)
+          this.noteEditor.setSource(newSource);
+          await this.updateFileWithSource(newSource);
         },
         (startChar: number, endChar: number) => {
           // Selection in editor: highlight notes in sheet

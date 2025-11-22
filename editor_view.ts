@@ -101,6 +101,7 @@ const abcFoldService = foldService.of((state, from, to) => {
 export class AbcEditorView extends ItemView {
   private editorView: EditorView | null = null;
   private onChange: ((content: string) => void) | null = null;
+  private onSave: ((content: string) => Promise<void>) | null = null;
   private onSelectionChange: ((startChar: number, endChar: number) => void) | null = null;
   private currentContent: string = '';
   private updateTimeout: NodeJS.Timeout | null = null;
@@ -124,10 +125,22 @@ export class AbcEditorView extends ItemView {
     return 'music';
   }
 
+  // PROTECTION: Save data when reloading (Cmd+R) or closing Obsidian
+  private handleBeforeUnload = () => {
+    if (this.editorView && this.onSave) {
+      const content = this.editorView.state.doc.toString();
+      // Fire and forget save on unload
+      this.onSave(content).catch(err => console.error("Save on close failed", err));
+    }
+  }
+
   async onOpen(): Promise<void> {
     const container = this.containerEl.children[1];
     container.empty();
     container.addClass('abc-editor-view');
+
+    // Activate reload/quit protection
+    window.addEventListener('beforeunload', this.handleBeforeUnload);
 
     const header = container.createDiv({ cls: 'abc-editor-view-header' });
     header.createEl('h4', { text: 'ABC Music Code Editor' });
@@ -244,12 +257,14 @@ export class AbcEditorView extends ItemView {
   }
 
   setContent(
-    content: string, 
+    content: string,
     onChange: (content: string) => void,
+    onSave: (content: string) => Promise<void>,
     onSelectionChange?: (startChar: number, endChar: number) => void
   ): void {
     this.currentContent = content;
     this.onChange = onChange;
+    this.onSave = onSave;
     this.onSelectionChange = onSelectionChange || null;
     
     if (this.editorView) {
