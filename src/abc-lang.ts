@@ -17,17 +17,27 @@ import {
   voiceAttributeDefinitions,
   validClefs,
   clefDefinitions,
-  directionDefinitions
+  directionDefinitions,
+  getVoiceAttributeConfig
 } from "./abc-voices"
 
 // Add MIDI to directives set (special handling)
 const allDirectives = new Set(validDirectives)
 allDirectives.add("MIDI")
 
+// Generate dynamic regex pattern for voice attributes with assignments
+const voiceAttrPattern = voiceAttributes
+  .filter(attr => attr.valueType === "assignment")
+  .map(attr => `${attr.attribute}=\\w*`)
+  .join("|")
+
+// Build complete word matching regex
+const wordMatchRegex = new RegExp(`%%\\w*|[A-Za-z]:?|${voiceAttrPattern}|\\w+`)
+
 // Autocompletion for directives and info keys
 function abcCompletions(context: CompletionContext) {
   // 1. Attempt to match a word before cursor
-  let word = context.matchBefore(/%%\w*|[A-Za-z]:?|clef=\w*|shift=\w*|stem=\w*|gstem=\w*|lyrics=\w*|dyn=\w*|\w+/)
+  let word = context.matchBefore(wordMatchRegex)
   
   const line = context.state.doc.lineAt(context.pos)
   const lineText = context.state.doc.sliceString(line.from, context.pos)
@@ -119,75 +129,23 @@ function abcCompletions(context: CompletionContext) {
     }
   }
   
-  // Complete clef values
-  if (word.text.startsWith("clef=")) {
-    return {
-      from: word.from,
-      options: Array.from(validClefs).map(c => ({ 
-        label: `clef=${c}`, 
-        type: "property",
-        info: clefDefinitions[c] || "Clef type"
-      }))
-    }
-  }
-  
-  // Complete shift attribute
-  if (word.text.startsWith("shift=")) {
-    return {
-      from: word.from,
-      options: ["A", "B", "C", "D", "E", "F", "G"].map(n => ({ 
-        label: `shift=${n}`, 
-        type: "property",
-        info: `Transpose by note ${n}`
-      }))
-    }
-  }
-  
-  // Complete stem attribute
-  if (word.text.startsWith("stem=")) {
-    return {
-      from: word.from,
-      options: ["auto", "up", "down"].map(s => ({ 
-        label: `stem=${s}`, 
-        type: "property",
-        info: `Stem direction: ${directionDefinitions[s] || s}`
-      }))
-    }
-  }
-  
-  // Complete gstem attribute
-  if (word.text.startsWith("gstem=")) {
-    return {
-      from: word.from,
-      options: ["auto", "up", "down"].map(s => ({ 
-        label: `gstem=${s}`, 
-        type: "property",
-        info: `Grace note stem: ${directionDefinitions[s] || s}`
-      }))
-    }
-  }
-  
-  // Complete lyrics attribute
-  if (word.text.startsWith("lyrics=")) {
-    return {
-      from: word.from,
-      options: ["auto", "up", "down"].map(s => ({ 
-        label: `lyrics=${s}`, 
-        type: "property",
-        info: `Lyrics position: ${directionDefinitions[s] || s}`
-      }))
-    }
-  }
-  
-  // Complete dyn attribute
-  if (word.text.startsWith("dyn=")) {
-    return {
-      from: word.from,
-      options: ["auto", "up", "down"].map(s => ({ 
-        label: `dyn=${s}`, 
-        type: "property",
-        info: `Dynamics position: ${directionDefinitions[s] || s}`
-      }))
+  // Complete voice attribute values dynamically
+  // Check if word matches any voice attribute with "=" (e.g., "clef=", "stem=", "name=")
+  const attrMatch = word.text.match(/^(\w+)=/)
+  if (attrMatch && isInVoiceLine) {
+    const attrName = attrMatch[1]
+    const config = voiceAttributes.find(attr => attr.attribute === attrName)
+    
+    if (config && config.validValues) {
+      // Generate completions for attributes with predefined valid values
+      return {
+        from: word.from,
+        options: config.validValues.map(value => ({
+          label: `${attrName}=${value}`,
+          type: "property",
+          info: `${config.description}: ${value}`
+        }))
+      }
     }
   }
   
@@ -335,46 +293,54 @@ const abcLinter = linter(view => {
   return diagnostics
 })
 
+// Generate style tags dynamically from voice attributes and MIDI attributes
+function generateStyleTags() {
+  const tags: Record<string, any> = {
+    // Core ABC syntax elements
+    DirectiveKeyword: t.keyword,            // %%keyword - purple
+    MidiKeyword: t.keyword,                 // %%MIDI - purple
+    InfoKey: t.typeName,                    // T:, M:, K: - blue
+    VoiceKey: t.keyword,                    // V: - purple
+    
+    // Values and identifiers
+    MidiNumber: t.number,                   // MIDI numbers - orange
+    InvalidValue: t.invalid,                // Invalid values - red
+    Identifier: t.variableName,             // V1, V2, etc - default
+    GenericAssignment: t.propertyName,      // other key=value
+    AttributeValue: t.string,               // generic values
+    DirectiveArgs: t.string,                // arguments/values - green
+    
+    // Comments
+    Comment: t.lineComment,                 // % comments - gray italic
+    InlineComment: t.lineComment,           // % at end of line - gray italic
+    CommentedDirective: t.lineComment,      // %%% commented directives - gray italic
+  }
+  
+  // Add MIDI attribute styles dynamically
+  midiAttributes.forEach(attr => {
+    const capitalizedAttr = attr.attribute.charAt(0).toUpperCase() + attr.attribute.slice(1)
+    const nodeType = attr.valueType === "standalone" 
+      ? `${capitalizedAttr}Keyword/Identifier`
+      : `${capitalizedAttr}Assignment/Identifier`
+    tags[nodeType] = t.propertyName
+  })
+  
+  // Add voice attribute styles dynamically
+  voiceAttributes.forEach(attr => {
+    const capitalizedAttr = attr.attribute.charAt(0).toUpperCase() + attr.attribute.slice(1)
+    const nodeType = attr.valueType === "standalone"
+      ? `${capitalizedAttr}Keyword/Identifier`
+      : `${capitalizedAttr}Assignment/Identifier`
+    tags[nodeType] = t.propertyName
+  })
+  
+  return tags
+}
+
 export const abcLanguage = LRLanguage.define({
   parser: parser.configure({
     props: [
-      styleTags({
-        DirectiveKeyword: t.keyword,            // %%keyword - purple
-        MidiKeyword: t.keyword,                 // %%MIDI - purple
-        InfoKey: t.typeName,                    // T:, M:, K: - blue
-        VoiceKey: t.keyword,                    // V: - purple
-        "ClefAssignment/Identifier": t.propertyName,  // "clef" - blue
-        "ShiftAssignment/Identifier": t.propertyName, // "shift" - blue
-        "StemAssignment/Identifier": t.propertyName,  // "stem" - blue
-        "GstemAssignment/Identifier": t.propertyName, // "gstem" - blue
-        "LyricsAssignment/Identifier": t.propertyName, // "lyrics" - blue
-        "DynAssignment/Identifier": t.propertyName,   // "dyn" - blue
-        "ProgramAssignment/Identifier": t.propertyName, // "program" - blue
-        "ChordProgAssignment/Identifier": t.propertyName, // "chordprog" - blue
-        "ChannelAssignment/Identifier": t.propertyName, // "channel" - blue
-        "DrumAssignment/Identifier": t.propertyName,    // "drum" - blue
-        "GchordAssignment/Identifier": t.propertyName,  // "gchord" - blue
-        "TransposeAssignment/Identifier": t.propertyName, // "transpose" - blue
-        "DrumOnKeyword/Identifier": t.propertyName,     // "drumon" - blue
-        "DrumOffKeyword/Identifier": t.propertyName,    // "drumoff" - blue
-        "PercKeyword/Identifier": t.propertyName,     // "perc" - blue
-        "UpKeyword/Identifier": t.propertyName,       // "up" - blue
-        "DownKeyword/Identifier": t.propertyName,     // "down" - blue
-        "MergeKeyword/Identifier": t.propertyName,    // "merge" - blue
-        MidiNumber: t.number,                   // MIDI numbers - orange
-        ValidClef: t.atom,                      // "bass", "treble" - green/orange
-        ValidShift: t.atom,                     // "A", "CD" - green/orange
-        ValidStem: t.atom,                      // "up", "down" - green/orange
-        ValidDirection: t.atom,                 // "auto", "up", "down" - green/orange
-        InvalidValue: t.invalid,                // Invalid values - red
-        Identifier: t.variableName,             // V1, V2, etc - default
-        GenericAssignment: t.propertyName,      // other key=value
-        AttributeValue: t.string,               // generic values
-        DirectiveArgs: t.string,                // arguments/values - green
-        Comment: t.lineComment,                 // % comments - gray italic
-        InlineComment: t.lineComment,           // % at end of line - gray italic
-        CommentedDirective: t.lineComment,      // %%% commented directives - gray italic
-      })
+      styleTags(generateStyleTags())
     ]
   }),
   languageData: {

@@ -12,6 +12,7 @@ export interface VoiceAttributeConfig {
 
 // Voice attributes configuration
 export const voiceAttributes: VoiceAttributeConfig[] = [
+  // --- Existing Attributes ---
   {
     attribute: "clef",
     description: "Set the clef (treble, bass, alto, etc.)",
@@ -48,6 +49,67 @@ export const voiceAttributes: VoiceAttributeConfig[] = [
     valueType: "assignment",
     validValues: ["auto", "up", "down"]
   },
+  
+  // --- New Attributes from Documentation ---
+  {
+    attribute: "cue",
+    description: "Set as cue/hint voice (smaller size)",
+    valueType: "assignment",
+    validValues: ["on", "off"]
+  },
+  {
+    attribute: "gchord",
+    description: "Accompaniment chord placement (up, down)",
+    valueType: "assignment",
+    validValues: ["up", "down"]
+  },
+  {
+    attribute: "name",
+    description: "Name appearing at the left of the first staff",
+    valueType: "assignment"
+  },
+  {
+    attribute: "nm",
+    description: "Name appearing at the left of the first staff (alias)",
+    valueType: "assignment"
+  },
+  {
+    attribute: "sname",
+    description: "Name appearing at the left of subsequent staves",
+    valueType: "assignment"
+  },
+  {
+    attribute: "snm",
+    description: "Name appearing at the left of subsequent staves (alias)",
+    valueType: "assignment"
+  },
+  {
+    attribute: "scale",
+    description: "Voice scale (0.5 to 2.0, Default: 1)",
+    valueType: "assignment"
+  },
+  {
+    attribute: "staffscale",
+    description: "Scale of voice and associated staff (0.5 to 3.0, Default: 1)",
+    valueType: "assignment"
+  },
+  {
+    attribute: "stafflines",
+    description: "Number of lines of the associated staff",
+    valueType: "assignment"
+  },
+  {
+    attribute: "staffnonote",
+    description: "Hides the staff associated to the voice",
+    valueType: "assignment"
+  },
+  {
+    attribute: "pos",
+    description: "Position of music elements (type position)",
+    valueType: "assignment"
+  },
+
+  // --- Standalone Flags ---
   {
     attribute: "perc",
     description: "Percussion staff (no pitch)",
