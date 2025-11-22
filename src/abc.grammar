@@ -1,0 +1,13 @@
+@top Program { (CommentedDirective | Directive | Comment | Other)* }
+
+@tokens {
+  CommentedDirective { "%%%" ![\n]* }
+  
+  Directive { "%%" ![\n]* }
+  
+  Comment { "%" ![\n]* }
+  
+  Other { ![\n%]+ }
+  
+  @precedence { CommentedDirective, Directive, Comment, Other }
+}

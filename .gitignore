@@ -2,9 +2,18 @@
 *.iml
 .idea
 Debug_ISSUE.md
+
 # npm
 node_modules
 
 # build
 main.js
 *.js.map
+
+# Lezer generated files
+src/*.grammar.js
+src/*.grammar.terms.js
+src/*.grammar.d.ts
+
+# Temporary directories
+abc-lang-temp/

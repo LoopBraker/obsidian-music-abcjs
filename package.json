@@ -14,6 +14,8 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@lezer/generator": "^1.8.0",
+    "@lezer/lr": "^1.4.3",
     "@types/node": "18.11.9",
     "@typescript-eslint/eslint-plugin": "5.29.0",
     "@typescript-eslint/parser": "5.29.0",
@@ -29,6 +31,7 @@
     "@codemirror/language": "^6.11.3",
     "@codemirror/search": "^6.5.11",
     "@codemirror/state": "^6.5.2",
+    "@codemirror/theme-one-dark": "^6.1.3",
     "@codemirror/view": "^6.38.8",
     "abcjs": "6.5.2"
   }

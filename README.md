@@ -95,9 +95,96 @@ If you have any feedback, please feel free to open an issue. If you know your wa
 
 # Development
 
-- clone the repository
-- `npm i` to install all the dependencies
-- `npm run build` to compile
+## Setup
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/LoopBraker/obsidian-music-abcjs.git
+   cd obsidian-music-abcjs
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+## Building
+
+### Generate the Lezer Parser
+
+The syntax highlighting uses a Lezer grammar. After modifying `src/abc.grammar`, regenerate the parser:
+
+```bash
+npx lezer-generator src/abc.grammar -o src/abc.grammar.js
+```
+
+### Compile the Plugin
+
+```bash
+npm run build
+```
+
+This will create `main.js` in the root directory.
+
+## Running in Obsidian
+
+### Method 1: Development in Obsidian Vault
+
+1. Copy the plugin folder to your Obsidian vault's plugins directory:
+   ```bash
+   # Replace YOUR_VAULT with your actual vault path
+   cp -r . /path/to/YOUR_VAULT/.obsidian/plugins/music-code-blocks/
+   ```
+
+2. In Obsidian:
+   - Open Settings → Community Plugins
+   - Disable Safe Mode (if enabled)
+   - Find "ABC Music Notation" in the installed plugins list
+   - Enable the plugin
+
+3. Reload Obsidian or use the Command Palette (Cmd+P / Ctrl+P) and run "Reload app without saving"
+
+### Method 2: Hot Reload During Development
+
+1. Enable the Hot Reload plugin in Obsidian for faster iteration
+
+2. Run the build in watch mode (if using rollup):
+   ```bash
+   npm run dev
+   ```
+
+3. Changes will auto-reload in Obsidian
+
+## Testing
+
+Create a test note in Obsidian with an ABC music code block:
+
+````markdown
+```music-abc
+X:1
+T:Test Song
+M:4/4
+L:1/4
+K:C
+C D E F | G4 |
+```
+````
+
+You should see:
+- Rendered sheet music
+- Syntax highlighting in the editor (comments in gray, directives in purple)
+- Click-to-play functionality
+- Code folding with `%=` markers
+
+## Project Structure
+
+- `main.ts` - Plugin entry point
+- `editor_view.ts` - Sidebar editor with CodeMirror 6
+- `note_editor.ts` - Note selection and editing
+- `note_highlighter.ts` - Click-to-play highlighting
+- `playback_element.ts` - Audio playback controls
+- `src/abc.grammar` - Lezer grammar for syntax highlighting
+- `src/abc-lang.ts` - Language integration for CodeMirror
 - copy main.js, manifest.json, and styles.css into your plugin directory (`.obsidian/plugins/<plugin-name>`)
 
 # License

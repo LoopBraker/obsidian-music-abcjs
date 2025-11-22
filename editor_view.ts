@@ -4,8 +4,10 @@ import { EditorState, EditorSelection } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab, toggleComment } from '@codemirror/commands';
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
-import { bracketMatching, indentOnInput, StreamLanguage, foldGutter, foldService } from '@codemirror/language';
-import { Tag } from '@lezer/highlight';
+import { bracketMatching, indentOnInput, foldGutter, foldService, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
+import { oneDark } from '@codemirror/theme-one-dark';
+import { abc } from './src/abc-lang';
 
 export const ABC_EDITOR_VIEW_TYPE = 'abc-music-editor';
 
@@ -93,28 +95,8 @@ const abcFoldService = foldService.of((state, from, to) => {
   return null;
 });
 
-// Define ABC notation language for CodeMirror
-const abcLanguage = StreamLanguage.define({
-  name: 'abc',
-  startState: () => ({}),
-  token: (stream: any) => {
-    // Check for comments: % but not %%
-    if (stream.sol() && stream.match(/^%(?!%)/)) {
-      stream.skipToEnd();
-      return 'comment';
-    }
-    
-    // Skip %% directives (not comments)
-    if (stream.match(/^%%/)) {
-      stream.skipToEnd();
-      return 'keyword';
-    }
-    
-    // Default: consume character
-    stream.next();
-    return null;
-  }
-});
+// ABC Language is now defined in src/abc-lang.ts using proper Lezer grammar
+// This provides real syntax highlighting with a compiled parser!
 
 export class AbcEditorView extends ItemView {
   private editorView: EditorView | null = null;
@@ -162,7 +144,14 @@ export class AbcEditorView extends ItemView {
       state: EditorState.create({
         doc: this.currentContent,
         extensions: [
-          abcLanguage,
+          // 1. Theme Configuration
+          oneDark,
+          
+          // 2. Language & Highlighting with proper Lezer grammar
+          abc(),  // Use the abc() function from src/abc-lang.ts
+          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+          
+          // 3. Essential Extensions
           abcFoldService,
           foldGutter(),
           lineNumbers(),
@@ -188,32 +177,27 @@ export class AbcEditorView extends ItemView {
             ...completionKeymap,
             indentWithTab,
           ]),
+          
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
-              // Debounce content changes
-              if (this.updateTimeout) {
-                clearTimeout(this.updateTimeout);
-              }
-              
+              if (this.updateTimeout) clearTimeout(this.updateTimeout);
               this.updateTimeout = setTimeout(() => {
-                if (this.onChange) {
-                  this.onChange(update.state.doc.toString());
-                }
+                if (this.onChange) this.onChange(update.state.doc.toString());
               }, 300);
             }
-            
-            if (update.selectionSet) {
-              // Trigger selection change callback
-              if (this.onSelectionChange) {
-                const selection = update.state.selection.main;
-                this.onSelectionChange(selection.from, selection.to);
-              }
+            if (update.selectionSet && this.onSelectionChange) {
+              const selection = update.state.selection.main;
+              this.onSelectionChange(selection.from, selection.to);
             }
           }),
+          
+          // 4. Force Colors to prevent invisible text / light theme bleed
           EditorView.theme({
             "&": {
               fontSize: "14px",
               height: "100%",
+              backgroundColor: "#282c34",  // Force One Dark Background
+              color: "#abb2bf"              // Force One Dark Text
             },
             ".cm-scroller": {
               fontFamily: "var(--font-monospace, 'Courier New', monospace)",
@@ -224,6 +208,10 @@ export class AbcEditorView extends ItemView {
             },
             ".cm-line": {
               padding: "0 10px",
+            },
+            ".cm-gutters": {
+              backgroundColor: "#282c34",
+              borderRight: "1px solid #3e4451"
             },
             "&.cm-focused": {
               outline: "none",
@@ -301,45 +289,24 @@ export class AbcEditorView extends ItemView {
   }
 
   highlightRange(startChar: number, endChar: number): void {
-    if (!this.editorView) {
-      return;
-    }
+    if (!this.editorView) return;
     
-    // 1. Ensure indices are within bounds
-    const maxLength = this.editorView.state.doc.length;
-    const safeStart = Math.max(0, Math.min(startChar, maxLength));
-    const safeEnd = Math.max(0, Math.min(endChar, maxLength));
+    // @ts-ignore: Tell Obsidian to make this sidebar leaf active/visible
+    if (this.app?.workspace) this.app.workspace.revealLeaf(this.leaf);
     
-    // 2. CRITICAL FIX: Tell Obsidian to make this sidebar leaf active/visible
-    // @ts-ignore: accessing app on ItemView
-    if (this.app && this.app.workspace) {
-       // @ts-ignore
-       this.app.workspace.revealLeaf(this.leaf);
-    }
-
-    // 3. CRITICAL FIX: Use setTimeout to decouple from the click event
     setTimeout(() => {
         if (!this.editorView) return;
         
-        // Focus the editor
-        this.editorView.focus();
+        const maxLength = this.editorView.state.doc.length;
+        const safeStart = Math.max(0, Math.min(startChar, maxLength));
+        const safeEnd = Math.max(0, Math.min(endChar, maxLength));
         
-        // Set selection
+        this.editorView.focus();
         this.editorView.dispatch({
           selection: EditorSelection.single(safeStart, safeEnd),
-          scrollIntoView: true,
+          scrollIntoView: true
         });
-        
-        // Scroll to center the selection
-        const effect = EditorView.scrollIntoView(safeStart, {
-          y: "center",
-          yMargin: 50,
-        });
-        
-        this.editorView.dispatch({
-          effects: effect,
-        });
-    }, 10);
+    }, 50);
   }
 
   updateCallbacks(
