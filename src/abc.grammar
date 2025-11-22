@@ -2,6 +2,7 @@
 
 line { 
   CommentedDirective | 
+  MidiLine |    // Specific rule for %%MIDI lines
   DirectiveLine | 
   VoiceLine |   // Specific rule for V: lines
   InfoLine |    // Generic rule for T:, M:, etc.
@@ -9,7 +10,56 @@ line {
   Other 
 }
 
-// === 1. Voice Line (Strict Parsing) ===
+// === 1. MIDI Line (Strict Parsing) ===
+// Example: %%MIDI program 1
+MidiLine {
+  MidiKeyword
+  Space
+  MidiContent
+  (Space MidiContent)*  // Additional attributes (will be flagged as errors)
+  InlineComment?
+}
+
+MidiContent {
+  ProgramAssignment |
+  ChannelAssignment |
+  DrumAssignment |
+  TransposeAssignment |
+  DrumOnKeyword |
+  DrumOffKeyword |
+  DirectiveArgs
+}
+
+// Matches: program 1 or program 128
+ProgramAssignment {
+  @specialize<Identifier, "program"> Space MidiNumber
+}
+
+// Matches: channel 1 or channel 16
+ChannelAssignment {
+  @specialize<Identifier, "channel"> Space MidiNumber
+}
+
+// Matches: drum <any value>
+DrumAssignment {
+  @specialize<Identifier, "drum"> Space DirectiveArgs
+}
+
+// Matches: transpose <number>
+TransposeAssignment {
+  @specialize<Identifier, "transpose"> Space MidiNumber
+}
+
+// Standalone keywords (no value)
+DrumOnKeyword {
+  @specialize<Identifier, "drumon">
+}
+
+DrumOffKeyword {
+  @specialize<Identifier, "drumoff">
+}
+
+// === 2. Voice Line (Strict Parsing) ===
 // Example: V: V1 clef=bass shift=C
 VoiceLine {
   VoiceKey 
@@ -105,6 +155,8 @@ DirectiveLine {
   newline { "\n" }
   
   // -- Keywords --
+  MidiKeyword { "%%MIDI" }
+  
   DirectiveKeyword { "%%" ![ \t%\n]+ }
   
   // Explicit V: key to separate it from generic infos
@@ -137,6 +189,9 @@ InfoKey { ![V|\n] ":" }
   // Valid Direction values (for gstem, lyrics, dyn)
   ValidDirection { "auto" | "up" | "down" }
   
+  // MIDI numbers (integers, can be negative for transpose)
+  MidiNumber { "-"? @digit+ }
+  
   // A generic alphanumeric word (includes +/- for treble+8, treble-8)
   Identifier { (@asciiLetter | "+" | "-" | @digit)+ }
   
@@ -160,7 +215,8 @@ InfoKey { ![V|\n] ":" }
   // 3. equals before Space to match = with surrounding spaces
   @precedence { 
     equalsWithSpaces,
-    CommentedDirective, 
+    CommentedDirective,
+    MidiKeyword,
     DirectiveKeyword, 
     VoiceKey, 
     InfoKey, 
@@ -168,8 +224,10 @@ InfoKey { ![V|\n] ":" }
     ValidShift, 
     ValidStem,
     ValidDirection,
+    MidiNumber,
     Space,
-    Identifier, 
+    Identifier,
+    DirectiveArgs,
     InvalidValue,
     Comment, 
     Other 

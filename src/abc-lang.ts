@@ -32,6 +32,8 @@ const validDirectives = new Set([
   "measurefirst", "barnumbers", "measurenb", "measurebox",
   "setbarnb","contbarnb","alignbars",
 
+  "score","percmap",
+
 
 ])
 
@@ -56,10 +58,15 @@ function abcCompletions(context: CompletionContext) {
   let word = context.matchBefore(/%%\w*|[A-Za-z]:?|clef=\w*|shift=\w*|stem=\w*|gstem=\w*|lyrics=\w*|dyn=\w*|\w+/)
   if (!word) return null
   
-  // Check if we're in a V: line to suggest voice attributes
+  // Check if we're in an info line (any line starting with X:)
   const line = context.state.doc.lineAt(context.pos)
   const lineText = context.state.doc.sliceString(line.from, context.pos)
   const isInVoiceLine = /^V:\s+/.test(lineText)
+  const isInMidiLine = /^%%MIDI\s+/.test(lineText)
+  const isInAnyInfoLine = /^[A-Za-z]:\s+/.test(lineText)
+  
+  // Check if MIDI line already has an attribute (only one allowed)
+  const midiHasAttribute = /^%%MIDI\s+\w+/.test(lineText)
   
   // Complete directives starting with %%
   if (word.text.startsWith("%%")) {
@@ -73,12 +80,34 @@ function abcCompletions(context: CompletionContext) {
     }
   }
   
+  // If in a %%MIDI line, suggest MIDI attributes (only if no attribute yet)
+  if (isInMidiLine && !midiHasAttribute && word.text.match(/^\w+$/)) {
+    const midiAttributes = [
+      { label: "program", detail: "1-128" },
+      { label: "channel", detail: "1-16" },
+      { label: "drum", detail: "<value>" },
+      { label: "transpose", detail: "<number>" },
+      { label: "drumon", detail: "(standalone)" },
+      { label: "drumoff", detail: "(standalone)" },
+    ]
+    
+    return {
+      from: word.from,
+      options: midiAttributes.map(attr => ({
+        label: attr.label,
+        type: "property",
+        detail: attr.detail,
+        info: "MIDI attribute"
+      }))
+    }
+  }
+  
   // If in a V: line, suggest voice attributes instead of info keys
   if (isInVoiceLine && word.text.match(/^\w+$/)) {
     const voiceAttributes = [
       { label: "clef", detail: "=bass|treble|alto|..." },
       { label: "shift", detail: "=A-G" },
-      { label: "stem", detail: "=auto|up|down" },
+      { label: "stem", detail: "=up|down" },
       { label: "gstem", detail: "=auto|up|down" },
       { label: "lyrics", detail: "=auto|up|down" },
       { label: "dyn", detail: "=auto|up|down" },
@@ -99,8 +128,8 @@ function abcCompletions(context: CompletionContext) {
     }
   }
   
-  // Complete info keys at start of line (only if not already in an info line)
-  if (word.text.match(/^[A-Za-z]:?$/) && !isInVoiceLine) {
+  // Complete info keys ONLY at start of line (not if already in an info line)
+  if (word.text.match(/^[A-Za-z]:?$/) && !isInAnyInfoLine) {
     return {
       from: word.from,
       options: Array.from(validInfoKeys).map(k => ({ 
@@ -237,6 +266,59 @@ const abcLinter = linter(view => {
         })
       }
     }
+    
+    // Check MidiLine for multiple attributes (only one allowed)
+    if (node.name === "MidiLine") {
+      let contentCount = 0
+      let cursor = node.node.cursor()
+      cursor.firstChild() // Enter MidiLine
+      
+      do {
+        if (cursor.node.name === "MidiContent") {
+          contentCount++
+          if (contentCount > 1) {
+            diagnostics.push({
+              from: cursor.node.from,
+              to: cursor.node.to,
+              severity: "error",
+              message: "Only one MIDI attribute allowed per line"
+            })
+          }
+        }
+      } while (cursor.nextSibling())
+    }
+    
+    // Validate MIDI program range (1-128)
+    if (node.name === "ProgramAssignment") {
+      let numberNode = node.node.lastChild
+      if (numberNode && numberNode.name === "MidiNumber") {
+        const value = parseInt(view.state.doc.sliceString(numberNode.from, numberNode.to))
+        if (value < 1 || value > 128) {
+          diagnostics.push({
+            from: numberNode.from,
+            to: numberNode.to,
+            severity: "error",
+            message: `MIDI program must be between 1 and 128 (got ${value})`
+          })
+        }
+      }
+    }
+    
+    // Validate MIDI channel range (1-16)
+    if (node.name === "ChannelAssignment") {
+      let numberNode = node.node.lastChild
+      if (numberNode && numberNode.name === "MidiNumber") {
+        const value = parseInt(view.state.doc.sliceString(numberNode.from, numberNode.to))
+        if (value < 1 || value > 16) {
+          diagnostics.push({
+            from: numberNode.from,
+            to: numberNode.to,
+            severity: "error",
+            message: `MIDI channel must be between 1 and 16 (got ${value})`
+          })
+        }
+      }
+    }
   })
   
   // Check for blank lines (empty lines or lines with only whitespace)
@@ -263,6 +345,7 @@ export const abcLanguage = LRLanguage.define({
     props: [
       styleTags({
         DirectiveKeyword: t.keyword,            // %%keyword - purple
+        MidiKeyword: t.keyword,                 // %%MIDI - purple
         InfoKey: t.typeName,                    // T:, M:, K: - blue
         VoiceKey: t.keyword,                    // V: - purple
         "ClefAssignment/Identifier": t.propertyName,  // "clef" - blue
@@ -271,10 +354,17 @@ export const abcLanguage = LRLanguage.define({
         "GstemAssignment/Identifier": t.propertyName, // "gstem" - blue
         "LyricsAssignment/Identifier": t.propertyName, // "lyrics" - blue
         "DynAssignment/Identifier": t.propertyName,   // "dyn" - blue
+        "ProgramAssignment/Identifier": t.propertyName, // "program" - blue
+        "ChannelAssignment/Identifier": t.propertyName, // "channel" - blue
+        "DrumAssignment/Identifier": t.propertyName,    // "drum" - blue
+        "TransposeAssignment/Identifier": t.propertyName, // "transpose" - blue
+        "DrumOnKeyword/Identifier": t.propertyName,     // "drumon" - blue
+        "DrumOffKeyword/Identifier": t.propertyName,    // "drumoff" - blue
         "PercKeyword/Identifier": t.propertyName,     // "perc" - blue
         "UpKeyword/Identifier": t.propertyName,       // "up" - blue
         "DownKeyword/Identifier": t.propertyName,     // "down" - blue
         "MergeKeyword/Identifier": t.propertyName,    // "merge" - blue
+        MidiNumber: t.number,                   // MIDI numbers - orange
         ValidClef: t.atom,                      // "bass", "treble" - green/orange
         ValidShift: t.atom,                     // "A", "CD" - green/orange
         ValidStem: t.atom,                      // "up", "down" - green/orange
