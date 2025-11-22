@@ -55,12 +55,20 @@ const validShiftNotes = /^[A-G]+$/
 
 // Autocompletion for directives and info keys
 function abcCompletions(context: CompletionContext) {
+  // 1. Attempt to match a word before cursor
   let word = context.matchBefore(/%%\w*|[A-Za-z]:?|clef=\w*|shift=\w*|stem=\w*|gstem=\w*|lyrics=\w*|dyn=\w*|\w+/)
-  if (!word) return null
   
-  // Check if we're in an info line (any line starting with X:)
   const line = context.state.doc.lineAt(context.pos)
   const lineText = context.state.doc.sliceString(line.from, context.pos)
+
+  // 2. FIX: Handle the case where we are strictly after "%%MIDI " (with space)
+  // In this case, 'word' is usually null because regex doesn't match space, 
+  // but we want to trigger completion.
+  if (!word && /^%%MIDI\s+$/.test(lineText)) {
+    word = { from: context.pos, to: context.pos, text: "" }
+  }
+
+  if (!word) return null
   
   // ----------------------------------------------------------------
   // EXCLUSIVE GUARD: MIDI LINE
@@ -70,9 +78,10 @@ function abcCompletions(context: CompletionContext) {
   if (/^%%MIDI\b/.test(lineText)) {
     // Check text BEFORE current word to see if we're in the attribute slot
     const textBeforeWord = context.state.doc.sliceString(line.from, word.from)
-    const isMidiAttributeSlot = /^%%MIDI\s+$/.test(textBeforeWord)
+    const isMidiAttributeSlot = /^%%MIDI\s*$/.test(textBeforeWord)
     
-    if (isMidiAttributeSlot && word.text.match(/^\w*$/)) {
+    // Show suggestions if: right after %%MIDI with space, OR currently typing a word
+    if (isMidiAttributeSlot || (word.text.match(/^\w*$/) && /^%%MIDI\s+/.test(lineText))) {
       const midiAttributes = [
         { label: "program", detail: "0-127" },
         { label: "chordprog", detail: "0-127" },
