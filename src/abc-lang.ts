@@ -74,9 +74,11 @@ function abcCompletions(context: CompletionContext) {
     
     if (isMidiAttributeSlot && word.text.match(/^\w*$/)) {
       const midiAttributes = [
-        { label: "program", detail: "1-128" },
+        { label: "program", detail: "0-127" },
+        { label: "chordprog", detail: "0-127" },
         { label: "channel", detail: "1-16" },
         { label: "drum", detail: "<value>" },
+        { label: "gchord", detail: "<value>" },
         { label: "transpose", detail: "<number>" },
         { label: "drumon", detail: "(standalone)" },
         { label: "drumoff", detail: "(standalone)" },
@@ -304,17 +306,33 @@ const abcLinter = linter(view => {
       } while (cursor.nextSibling())
     }
     
-    // Validate MIDI program range (1-128)
+    // Validate MIDI program range (0-127)
     if (node.name === "ProgramAssignment") {
       let numberNode = node.node.lastChild
       if (numberNode && numberNode.name === "MidiNumber") {
         const value = parseInt(view.state.doc.sliceString(numberNode.from, numberNode.to))
-        if (value < 1 || value > 128) {
+        if (value < 0 || value > 127) {
           diagnostics.push({
             from: numberNode.from,
             to: numberNode.to,
             severity: "error",
-            message: `MIDI program must be between 1 and 128 (got ${value})`
+            message: `MIDI program must be between 0 and 127 (got ${value})`
+          })
+        }
+      }
+    }
+    
+    // Validate MIDI chordprog range (0-127)
+    if (node.name === "ChordProgAssignment") {
+      let numberNode = node.node.lastChild
+      if (numberNode && numberNode.name === "MidiNumber") {
+        const value = parseInt(view.state.doc.sliceString(numberNode.from, numberNode.to))
+        if (value < 0 || value > 127) {
+          diagnostics.push({
+            from: numberNode.from,
+            to: numberNode.to,
+            severity: "error",
+            message: `MIDI chordprog must be between 0 and 127 (got ${value})`
           })
         }
       }
@@ -371,8 +389,10 @@ export const abcLanguage = LRLanguage.define({
         "LyricsAssignment/Identifier": t.propertyName, // "lyrics" - blue
         "DynAssignment/Identifier": t.propertyName,   // "dyn" - blue
         "ProgramAssignment/Identifier": t.propertyName, // "program" - blue
+        "ChordProgAssignment/Identifier": t.propertyName, // "chordprog" - blue
         "ChannelAssignment/Identifier": t.propertyName, // "channel" - blue
         "DrumAssignment/Identifier": t.propertyName,    // "drum" - blue
+        "GchordAssignment/Identifier": t.propertyName,  // "gchord" - blue
         "TransposeAssignment/Identifier": t.propertyName, // "transpose" - blue
         "DrumOnKeyword/Identifier": t.propertyName,     // "drumon" - blue
         "DrumOffKeyword/Identifier": t.propertyName,    // "drumoff" - blue

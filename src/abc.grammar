@@ -22,17 +22,24 @@ MidiLine {
 
 MidiContent {
   ProgramAssignment |
+  ChordProgAssignment |
   ChannelAssignment |
   DrumAssignment |
+  GchordAssignment |
   TransposeAssignment |
   DrumOnKeyword |
   DrumOffKeyword |
   DirectiveArgs
 }
 
-// Matches: program 1 or program 128
+// Matches: program 0-127
 ProgramAssignment {
   @specialize<Identifier, "program"> Space MidiNumber
+}
+
+// Matches: chordprog 0-127
+ChordProgAssignment {
+  @specialize<Identifier, "chordprog"> Space MidiNumber
 }
 
 // Matches: channel 1 or channel 16
@@ -43,6 +50,11 @@ ChannelAssignment {
 // Matches: drum <any value>
 DrumAssignment {
   @specialize<Identifier, "drum"> Space DirectiveArgs
+}
+
+// Matches: gchord <any value>
+GchordAssignment {
+  @specialize<Identifier, "gchord"> Space DirectiveArgs
 }
 
 // Matches: transpose <number>
