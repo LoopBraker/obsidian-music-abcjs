@@ -24,19 +24,19 @@ VoiceContent {
   Identifier // Handles the "V1" or "V2" at start
 }
 
-// Matches: clef=bass (valid) OR clef=foo (invalid)
+// Matches: clef=bass or clef = bass (valid) OR clef=foo (invalid)
 ClefAssignment {
-  @specialize<Identifier, "clef"> "=" (ValidClef | InvalidValue)
+  @specialize<Identifier, "clef"> equalsWithSpaces (ValidClef | InvalidValue)
 }
 
-// Matches: shift=C (valid) OR shift=Z (invalid)
+// Matches: shift=C or shift = C (valid) OR shift=Z (invalid)
 ShiftAssignment {
-  @specialize<Identifier, "shift"> "=" (ValidShift | InvalidValue)
+  @specialize<Identifier, "shift"> equalsWithSpaces (ValidShift | InvalidValue)
 }
 
-// Matches: name=value (for properties other than clef/shift)
+// Matches: name=value or name = value (for properties other than clef/shift)
 GenericAssignment {
-  Identifier "=" AttributeValue
+  Identifier equalsWithSpaces AttributeValue
 }
 
 
@@ -69,7 +69,9 @@ DirectiveLine {
 InfoKey { ![V|\n] ":" }
 
   Space { $[\t ]+ }
-  "="
+  
+  // Equals with optional spaces on both sides (matches = or spaces = spaces)
+  equalsWithSpaces { ($[\t ]+ "=" $[\t ]*) | ("=" $[\t ]*) }
   
   // -- Values --
 
@@ -104,13 +106,16 @@ InfoKey { ![V|\n] ":" }
   // Precedence: 
   // 1. Look for V: first
   // 2. Look for specific Valid tokens before generic Identifiers
+  // 3. equals before Space to match = with surrounding spaces
   @precedence { 
+    equalsWithSpaces,
     CommentedDirective, 
     DirectiveKeyword, 
     VoiceKey, 
     InfoKey, 
     ValidClef, 
     ValidShift, 
+    Space,
     Identifier, 
     InvalidValue,
     Comment, 
