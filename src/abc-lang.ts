@@ -3,6 +3,14 @@ import {LRLanguage, LanguageSupport, syntaxTree} from "@codemirror/language"
 import {styleTags, tags as t} from "@lezer/highlight"
 import {autocompletion, CompletionContext} from "@codemirror/autocomplete"
 import {linter, Diagnostic} from "@codemirror/lint"
+import {
+  infoFieldDefinitions,
+  directiveDefinitions,
+  voiceAttributeDefinitions,
+  midiAttributeDefinitions,
+  clefDefinitions,
+  directionDefinitions
+} from "./abc-definitions"
 
 // Valid ABC directives (without %% prefix)
 const validDirectives = new Set([
@@ -83,23 +91,16 @@ function abcCompletions(context: CompletionContext) {
     // Show suggestions if: right after %%MIDI with space, OR currently typing a word
     if (isMidiAttributeSlot || (word.text.match(/^\w*$/) && /^%%MIDI\s+/.test(lineText))) {
       const midiAttributes = [
-        { label: "program", detail: "0-127" },
-        { label: "chordprog", detail: "0-127" },
-        { label: "channel", detail: "1-16" },
-        { label: "drum", detail: "<value>" },
-        { label: "gchord", detail: "<value>" },
-        { label: "transpose", detail: "<number>" },
-        { label: "drumon", detail: "(standalone)" },
-        { label: "drumoff", detail: "(standalone)" },
+        "program", "chordprog", "channel", "drum", 
+        "gchord", "transpose", "drumon", "drumoff"
       ]
       
       return {
         from: word.from,
         options: midiAttributes.map(attr => ({
-          label: attr.label,
+          label: attr,
           type: "property",
-          detail: attr.detail,
-          info: "MIDI attribute"
+          info: midiAttributeDefinitions[attr] || "MIDI attribute"
         }))
       }
     }
@@ -115,16 +116,23 @@ function abcCompletions(context: CompletionContext) {
   // Don't suggest anything in comments
   if (isInComment) return null
   
-  // Complete directives starting with %% (only if not already in an info line and no directive exists yet)
-  const hasDirectiveAlready = /^%%(?!MIDI)\w+/.test(lineText)  // Line has directive other than MIDI
-  
-  if (word.text.startsWith("%%") && !isInAnyInfoLine && !hasDirectiveAlready) {
+  // Complete directives starting with %% (only if not already in an info line)
+  // Match if currently typing a directive (%%word) or just typed %%
+  if (word.text.startsWith("%%") && !isInAnyInfoLine) {
+    // Extract what's been typed after %%
+    const partialDirective = word.text.slice(2).toLowerCase()
+    
+    // Filter directives that match what's been typed so far
+    const matchingDirectives = Array.from(validDirectives).filter(d => 
+      d.toLowerCase().startsWith(partialDirective)
+    )
+    
     return {
       from: word.from,
-      options: Array.from(validDirectives).map(d => ({ 
+      options: matchingDirectives.map(d => ({ 
         label: `%%${d}`, 
         type: "keyword",
-        info: "ABC directive"
+        info: directiveDefinitions[d] || "ABC directive"
       }))
     }
   }
@@ -132,25 +140,16 @@ function abcCompletions(context: CompletionContext) {
   // If in a V: line, suggest voice attributes instead of info keys
   if (isInVoiceLine && word.text.match(/^\w+$/)) {
     const voiceAttributes = [
-      { label: "clef", detail: "=bass|treble|alto|..." },
-      { label: "shift", detail: "=A-G" },
-      { label: "stem", detail: "=up|down" },
-      { label: "gstem", detail: "=auto|up|down" },
-      { label: "lyrics", detail: "=auto|up|down" },
-      { label: "dyn", detail: "=auto|up|down" },
-      { label: "perc", detail: "(standalone)" },
-      { label: "up", detail: "(standalone)" },
-      { label: "down", detail: "(standalone)" },
-      { label: "merge", detail: "(standalone)" },
+      "clef", "shift", "stem", "gstem", "lyrics", 
+      "dyn", "perc", "up", "down", "merge"
     ]
     
     return {
       from: word.from,
       options: voiceAttributes.map(attr => ({
-        label: attr.label,
+        label: attr,
         type: "property",
-        detail: attr.detail,
-        info: "Voice attribute"
+        info: voiceAttributeDefinitions[attr] || "Voice attribute"
       }))
     }
   }
@@ -162,7 +161,7 @@ function abcCompletions(context: CompletionContext) {
       options: Array.from(validInfoKeys).map(k => ({ 
         label: `${k}:`, 
         type: "variable",
-        info: "ABC info field"
+        info: infoFieldDefinitions[k] || "ABC info field"
       }))
     }
   }
@@ -174,7 +173,7 @@ function abcCompletions(context: CompletionContext) {
       options: Array.from(validClefs).map(c => ({ 
         label: `clef=${c}`, 
         type: "property",
-        info: "Clef type"
+        info: clefDefinitions[c] || "Clef type"
       }))
     }
   }
@@ -186,7 +185,7 @@ function abcCompletions(context: CompletionContext) {
       options: ["A", "B", "C", "D", "E", "F", "G"].map(n => ({ 
         label: `shift=${n}`, 
         type: "property",
-        info: "Shift note"
+        info: `Transpose by note ${n}`
       }))
     }
   }
@@ -198,7 +197,7 @@ function abcCompletions(context: CompletionContext) {
       options: ["auto", "up", "down"].map(s => ({ 
         label: `stem=${s}`, 
         type: "property",
-        info: "Stem direction"
+        info: `Stem direction: ${directionDefinitions[s] || s}`
       }))
     }
   }
@@ -210,7 +209,7 @@ function abcCompletions(context: CompletionContext) {
       options: ["auto", "up", "down"].map(s => ({ 
         label: `gstem=${s}`, 
         type: "property",
-        info: "Grace note stem direction"
+        info: `Grace note stem: ${directionDefinitions[s] || s}`
       }))
     }
   }
@@ -222,7 +221,7 @@ function abcCompletions(context: CompletionContext) {
       options: ["auto", "up", "down"].map(s => ({ 
         label: `lyrics=${s}`, 
         type: "property",
-        info: "Lyrics position"
+        info: `Lyrics position: ${directionDefinitions[s] || s}`
       }))
     }
   }
@@ -234,7 +233,7 @@ function abcCompletions(context: CompletionContext) {
       options: ["auto", "up", "down"].map(s => ({ 
         label: `dyn=${s}`, 
         type: "property",
-        info: "Dynamic marking position"
+        info: `Dynamics position: ${directionDefinitions[s] || s}`
       }))
     }
   }
