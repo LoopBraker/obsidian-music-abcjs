@@ -53,8 +53,13 @@ const validShiftNotes = /^[A-G]+$/
 
 // Autocompletion for directives and info keys
 function abcCompletions(context: CompletionContext) {
-  let word = context.matchBefore(/%%\w*|[A-Za-z]:?|clef=\w*|shift=\w*|stem=\w*|perc/)
+  let word = context.matchBefore(/%%\w*|[A-Za-z]:?|clef=\w*|shift=\w*|stem=\w*|gstem=\w*|lyrics=\w*|dyn=\w*|\w+/)
   if (!word) return null
+  
+  // Check if we're in a V: line to suggest voice attributes
+  const line = context.state.doc.lineAt(context.pos)
+  const lineText = context.state.doc.sliceString(line.from, context.pos)
+  const isInVoiceLine = /^V:\s+/.test(lineText)
   
   // Complete directives starting with %%
   if (word.text.startsWith("%%")) {
@@ -68,8 +73,34 @@ function abcCompletions(context: CompletionContext) {
     }
   }
   
-  // Complete info keys at start of line
-  if (word.text.match(/^[A-Za-z]:?$/)) {
+  // If in a V: line, suggest voice attributes instead of info keys
+  if (isInVoiceLine && word.text.match(/^\w+$/)) {
+    const voiceAttributes = [
+      { label: "clef", detail: "=bass|treble|alto|..." },
+      { label: "shift", detail: "=A-G" },
+      { label: "stem", detail: "=auto|up|down" },
+      { label: "gstem", detail: "=auto|up|down" },
+      { label: "lyrics", detail: "=auto|up|down" },
+      { label: "dyn", detail: "=auto|up|down" },
+      { label: "perc", detail: "(standalone)" },
+      { label: "up", detail: "(standalone)" },
+      { label: "down", detail: "(standalone)" },
+      { label: "merge", detail: "(standalone)" },
+    ]
+    
+    return {
+      from: word.from,
+      options: voiceAttributes.map(attr => ({
+        label: attr.label,
+        type: "property",
+        detail: attr.detail,
+        info: "Voice attribute"
+      }))
+    }
+  }
+  
+  // Complete info keys at start of line (only if not already in an info line)
+  if (word.text.match(/^[A-Za-z]:?$/) && !isInVoiceLine) {
     return {
       from: word.from,
       options: Array.from(validInfoKeys).map(k => ({ 
@@ -112,6 +143,42 @@ function abcCompletions(context: CompletionContext) {
         label: `stem=${s}`, 
         type: "property",
         info: "Stem direction"
+      }))
+    }
+  }
+  
+  // Complete gstem attribute
+  if (word.text.startsWith("gstem=")) {
+    return {
+      from: word.from,
+      options: ["auto", "up", "down"].map(s => ({ 
+        label: `gstem=${s}`, 
+        type: "property",
+        info: "Grace note stem direction"
+      }))
+    }
+  }
+  
+  // Complete lyrics attribute
+  if (word.text.startsWith("lyrics=")) {
+    return {
+      from: word.from,
+      options: ["auto", "up", "down"].map(s => ({ 
+        label: `lyrics=${s}`, 
+        type: "property",
+        info: "Lyrics position"
+      }))
+    }
+  }
+  
+  // Complete dyn attribute
+  if (word.text.startsWith("dyn=")) {
+    return {
+      from: word.from,
+      options: ["auto", "up", "down"].map(s => ({ 
+        label: `dyn=${s}`, 
+        type: "property",
+        info: "Dynamic marking position"
       }))
     }
   }
@@ -201,10 +268,17 @@ export const abcLanguage = LRLanguage.define({
         "ClefAssignment/Identifier": t.propertyName,  // "clef" - blue
         "ShiftAssignment/Identifier": t.propertyName, // "shift" - blue
         "StemAssignment/Identifier": t.propertyName,  // "stem" - blue
+        "GstemAssignment/Identifier": t.propertyName, // "gstem" - blue
+        "LyricsAssignment/Identifier": t.propertyName, // "lyrics" - blue
+        "DynAssignment/Identifier": t.propertyName,   // "dyn" - blue
         "PercKeyword/Identifier": t.propertyName,     // "perc" - blue
+        "UpKeyword/Identifier": t.propertyName,       // "up" - blue
+        "DownKeyword/Identifier": t.propertyName,     // "down" - blue
+        "MergeKeyword/Identifier": t.propertyName,    // "merge" - blue
         ValidClef: t.atom,                      // "bass", "treble" - green/orange
         ValidShift: t.atom,                     // "A", "CD" - green/orange
         ValidStem: t.atom,                      // "up", "down" - green/orange
+        ValidDirection: t.atom,                 // "auto", "up", "down" - green/orange
         InvalidValue: t.invalid,                // Invalid values - red
         Identifier: t.variableName,             // V1, V2, etc - default
         GenericAssignment: t.propertyName,      // other key=value

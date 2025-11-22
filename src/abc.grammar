@@ -21,7 +21,13 @@ VoiceContent {
   ClefAssignment |
   ShiftAssignment |
   StemAssignment |
+  GstemAssignment |
+  LyricsAssignment |
+  DynAssignment |
   PercKeyword |
+  UpKeyword |
+  DownKeyword |
+  MergeKeyword |
   GenericAssignment |
   Identifier // Handles the "V1" or "V2" at start
 }
@@ -41,9 +47,36 @@ StemAssignment {
   @specialize<Identifier, "stem"> equalsWithSpaces (ValidStem | InvalidValue)
 }
 
-// Matches: perc (standalone keyword, no value)
+// Matches: gstem=auto or gstem=up or gstem=down
+GstemAssignment {
+  @specialize<Identifier, "gstem"> equalsWithSpaces (ValidDirection | InvalidValue)
+}
+
+// Matches: lyrics=auto or lyrics=up or lyrics=down
+LyricsAssignment {
+  @specialize<Identifier, "lyrics"> equalsWithSpaces (ValidDirection | InvalidValue)
+}
+
+// Matches: dyn=auto or dyn=up or dyn=down
+DynAssignment {
+  @specialize<Identifier, "dyn"> equalsWithSpaces (ValidDirection | InvalidValue)
+}
+
+// Standalone keywords (no value)
 PercKeyword {
   @specialize<Identifier, "perc">
+}
+
+UpKeyword {
+  @specialize<Identifier, "up">
+}
+
+DownKeyword {
+  @specialize<Identifier, "down">
+}
+
+MergeKeyword {
+  @specialize<Identifier, "merge">
 }
 
 // Matches: name=value or name = value (for properties other than clef/shift/stem)
@@ -99,7 +132,10 @@ InfoKey { ![V|\n] ":" }
   ValidShift { $[A-G]+ }
   
   // Valid Stem directions
-  ValidStem { "auto" |"up" | "down" }
+  ValidStem { "up" | "down" }
+  
+  // Valid Direction values (for gstem, lyrics, dyn)
+  ValidDirection { "auto" | "up" | "down" }
   
   // A generic alphanumeric word (includes +/- for treble+8, treble-8)
   Identifier { (@asciiLetter | "+" | "-" | @digit)+ }
@@ -131,6 +167,7 @@ InfoKey { ![V|\n] ":" }
     ValidClef, 
     ValidShift, 
     ValidStem,
+    ValidDirection,
     Space,
     Identifier, 
     InvalidValue,
