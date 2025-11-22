@@ -61,14 +61,19 @@ function abcCompletions(context: CompletionContext) {
   // Check if we're in an info line (any line starting with X:)
   const line = context.state.doc.lineAt(context.pos)
   const lineText = context.state.doc.sliceString(line.from, context.pos)
+  const isInComment = /^%(?!%)/.test(lineText)  // Line starts with % but not %%
   const isInVoiceLine = /^V:\s*\S/.test(lineText)  // V: or V:X (with or without space)
-  const isInMidiLine = /^%%MIDI\s+/.test(lineText)
   const isInAnyInfoLine = /^[A-Za-z]:\s+/.test(lineText)
   const lineStartsWithDirective = /^%%/.test(lineText)  // Line starts with directive
-  const hasDirectiveAlready = /^%%\w+/.test(lineText)  // Line already has a complete directive
+  const hasDirectiveAlready = /^%%(?!MIDI)\w+/.test(lineText)  // Line already has a complete directive (but not MIDI)
   
-  // Check if MIDI line already has an attribute (only one allowed)
-  const midiHasAttribute = /^%%MIDI\s+\w+/.test(lineText)
+  // Don't suggest anything in comments
+  if (isInComment) return null
+  
+  // Check text BEFORE current word to see if we're right after %%MIDI
+  const textBeforeWord = context.state.doc.sliceString(line.from, word.from)
+  const isAfterMidiKeyword = /^%%MIDI\s*$/.test(textBeforeWord)  // Right after %%MIDI (with optional space)
+  const midiHasAttribute = /^%%MIDI\s+\w+\s+/.test(textBeforeWord)  // MIDI already has a complete attribute
   
   // Complete directives starting with %% (only if not already in an info line and no directive exists yet)
   if (word.text.startsWith("%%") && !isInAnyInfoLine && !hasDirectiveAlready) {
@@ -83,7 +88,7 @@ function abcCompletions(context: CompletionContext) {
   }
   
   // If in a %%MIDI line, suggest MIDI attributes (only if no attribute yet)
-  if (isInMidiLine && !midiHasAttribute && word.text.match(/^\w+$/)) {
+  if (isAfterMidiKeyword && !midiHasAttribute && word.text.match(/^\w*$/)) {
     const midiAttributes = [
       { label: "program", detail: "1-128" },
       { label: "channel", detail: "1-16" },
