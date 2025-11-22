@@ -60,9 +60,11 @@ DrumOffKeyword {
 }
 
 // === 2. Voice Line (Strict Parsing) ===
-// Example: V: V1 clef=bass shift=C
+// Example: V: V1 clef=bass shift=C or V:V1 clef=bass shift=C
 VoiceLine {
   VoiceKey 
+  Space?
+  VoiceContent
   (Space VoiceContent)*
   InlineComment?
 }

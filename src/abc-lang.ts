@@ -61,7 +61,7 @@ function abcCompletions(context: CompletionContext) {
   // Check if we're in an info line (any line starting with X:)
   const line = context.state.doc.lineAt(context.pos)
   const lineText = context.state.doc.sliceString(line.from, context.pos)
-  const isInVoiceLine = /^V:\s+/.test(lineText)
+  const isInVoiceLine = /^V:\s*\S/.test(lineText)  // V: or V:X (with or without space)
   const isInMidiLine = /^%%MIDI\s+/.test(lineText)
   const isInAnyInfoLine = /^[A-Za-z]:\s+/.test(lineText)
   
