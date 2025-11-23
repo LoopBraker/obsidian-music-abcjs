@@ -25,6 +25,13 @@ import {
   keyAttributeDefinitions,
   getKeyAttributeConfig
 } from "./abc-key"
+import {
+  compAttributes,
+  allCompComponents,
+  validCompAttributes,
+  isValidCompComponent,
+  getAttributeForComponent
+} from "./abc-comp"
 
 // Add MIDI to directives set (special handling)
 const allDirectives = new Set(validDirectives)
@@ -138,6 +145,28 @@ function abcCompletions(context: CompletionContext) {
         type: "property",
         info: attr.description
       }))
+    }
+  }
+  
+  // COMP: line completion
+  const isInCompLine = /^COMP:\s*/.test(lineText)
+  if (isInCompLine && word.text.match(/^\w*$/)) {
+    // Suggest both attributes and components
+    const attributeOptions = compAttributes.map(attr => ({
+      label: attr.attribute,
+      type: "property",
+      info: attr.description
+    }))
+    
+    const componentOptions = Array.from(allCompComponents.entries()).map(([comp, def]) => ({
+      label: comp,
+      type: "constant",  // Use constant type for components
+      info: def.description
+    }))
+    
+    return {
+      from: word.from,
+      options: [...attributeOptions, ...componentOptions]
     }
   }
   
@@ -345,6 +374,11 @@ function generateStyleTags() {
     InfoKey: t.typeName,                    // T:, M:, etc - blue
     VoiceKey: t.keyword,                    // V: - purple
     KeyKey: t.keyword,                      // K: - purple
+    CompKey: t.keyword,                     // COMP: - purple
+    
+    // COMP field elements
+    CompAttribute: t.meta,                  // MusicNotes attribute - special color (cyan/meta)
+    MusicNoteComponent: t.atom,             // A, B, C, D, E, F, G - special color (red/atom)
     
     // Values and identifiers  
     MidiNumber: t.number,                   // MIDI numbers - orange

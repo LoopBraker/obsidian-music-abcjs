@@ -6,6 +6,7 @@ line {
   DirectiveLine | 
   VoiceLine |   // Specific rule for V: lines
   KeyLine |     // Specific rule for K: lines
+  CompLine |    // Specific rule for COMP: lines
   InfoLine |    // Generic rule for T:, M:, etc.
   Comment | 
   Other 
@@ -102,13 +103,30 @@ KeyContent {
   Identifier // Handles the key signature like "C", "Cmaj", "Amin", etc.
 }
 
+// === 4. COMP Line (Composition Field) ===
+// Example: COMP: MusicNotes A B C
+// or: COMP: A B C (components can be used directly)
+CompLine {
+  CompKey
+  Space?
+  CompContent
+  (Space CompContent)*
+  InlineComment?
+}
+
+CompContent {
+  CompAttribute |
+  MusicNoteComponent |
+  Identifier // Fallback for other content
+}
+
 // Matches: name=value or name = value (for properties other than clef/shift/stem)
 GenericAssignment {
   Identifier equalsWithSpaces AttributeValue
 }
 
 
-// === 4. Generic Info Line ===
+// === 5. Generic Info Line ===
 // Example: T: My Song
 InfoLine {
   InfoKey
@@ -132,12 +150,17 @@ DirectiveLine {
   
   DirectiveKeyword { "%%" ![ \t%\n]+ }
   
-  // Explicit V: and K: keys to separate them from generic infos
+  // Explicit V:, K:, and COMP: keys to separate them from generic infos
   VoiceKey { "V:" }
   KeyKey { "K:" }
+  CompKey { "COMP:" }
   
-// Generic Info key (T:, M:, etc), but NOT V: or K:
-InfoKey { ![VK|\n] ":" }
+  // COMP field components and attributes
+  MusicNoteComponent { "A" | "B" | "C" | "D" | "E" | "F" | "G" }
+  CompAttribute { "MusicNotes" }
+  
+// Generic Info key (T:, M:, etc), but NOT V:, K:, or COMP:
+InfoKey { ![ \t] ![VKC|\n] ":" | ![C|\n] ":" }
 
   Space { $[\t ]+ }
   
@@ -162,7 +185,7 @@ InfoKey { ![VK|\n] ":" }
   Other { ![\n]+ }
   
   // Precedence: 
-  // 1. Look for V: and K: first
+  // 1. Look for V:, K:, and COMP: first
   // 2. Look for specific Valid tokens before generic Identifiers
   // 3. equals before Space to match = with surrounding spaces
   @precedence { 
@@ -172,6 +195,9 @@ InfoKey { ![VK|\n] ":" }
     DirectiveKeyword, 
     VoiceKey,
     KeyKey,
+    CompKey,
+    MusicNoteComponent,
+    CompAttribute,
     InfoKey, 
     MidiNumber,
     Space,
