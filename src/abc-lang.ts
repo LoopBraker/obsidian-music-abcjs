@@ -297,18 +297,20 @@ const abcLinter = linter(view => {
 function generateStyleTags() {
   const tags: Record<string, any> = {
     // Core ABC syntax elements
-    DirectiveKeyword: t.keyword,            // %%keyword - purple
+    DirectiveKeyword: t.namespace,            // %%keyword - purple
     MidiKeyword: t.keyword,                 // %%MIDI - purple
     InfoKey: t.typeName,                    // T:, M:, K: - blue
     VoiceKey: t.keyword,                    // V: - purple
     
-    // Values and identifiers
+    // Values and identifiers  
     MidiNumber: t.number,                   // MIDI numbers - orange
     InvalidValue: t.invalid,                // Invalid values - red
     Identifier: t.variableName,             // V1, V2, etc - default
-    GenericAssignment: t.propertyName,      // other key=value
-    AttributeValue: t.string,               // generic values
-    DirectiveArgs: t.string,                // arguments/values - green
+    
+    // Generic assignments and values (for any attribute)
+    "GenericAssignment/Identifier": t.propertyName,  // attribute name - blue
+    AttributeValue: t.string,               // generic values - green
+    DirectiveArgs: t.string,                // directive args - green
     
     // Comments
     Comment: t.lineComment,                 // % comments - gray italic
@@ -316,7 +318,7 @@ function generateStyleTags() {
     CommentedDirective: t.lineComment,      // %%% commented directives - gray italic
   }
   
-  // Add MIDI attribute styles dynamically
+  // Add MIDI attribute styles dynamically (for grammar-defined nodes)
   midiAttributes.forEach(attr => {
     const capitalizedAttr = attr.attribute.charAt(0).toUpperCase() + attr.attribute.slice(1)
     const nodeType = attr.valueType === "standalone" 
@@ -325,7 +327,7 @@ function generateStyleTags() {
     tags[nodeType] = t.propertyName
   })
   
-  // Add voice attribute styles dynamically
+  // Add voice attribute styles dynamically (for grammar-defined nodes)
   voiceAttributes.forEach(attr => {
     const capitalizedAttr = attr.attribute.charAt(0).toUpperCase() + attr.attribute.slice(1)
     const nodeType = attr.valueType === "standalone"

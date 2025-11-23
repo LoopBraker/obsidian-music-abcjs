@@ -82,65 +82,8 @@ VoiceLine {
 }
 
 VoiceContent {
-  ClefAssignment |
-  ShiftAssignment |
-  StemAssignment |
-  GstemAssignment |
-  LyricsAssignment |
-  DynAssignment |
-  PercKeyword |
-  UpKeyword |
-  DownKeyword |
-  MergeKeyword |
   GenericAssignment |
   Identifier // Handles the "V1" or "V2" at start
-}
-
-// Matches: clef=bass or clef = bass (valid) OR clef=foo (invalid)
-ClefAssignment {
-  @specialize<Identifier, "clef"> equalsWithSpaces (ValidClef | InvalidValue)
-}
-
-// Matches: shift=C or shift = C (valid) OR shift=Z (invalid)
-ShiftAssignment {
-  @specialize<Identifier, "shift"> equalsWithSpaces (ValidShift | InvalidValue)
-}
-
-// Matches: stem=up or stem=down (valid) OR stem=invalid (invalid)
-StemAssignment {
-  @specialize<Identifier, "stem"> equalsWithSpaces (ValidStem | InvalidValue)
-}
-
-// Matches: gstem=auto or gstem=up or gstem=down
-GstemAssignment {
-  @specialize<Identifier, "gstem"> equalsWithSpaces (ValidDirection | InvalidValue)
-}
-
-// Matches: lyrics=auto or lyrics=up or lyrics=down
-LyricsAssignment {
-  @specialize<Identifier, "lyrics"> equalsWithSpaces (ValidDirection | InvalidValue)
-}
-
-// Matches: dyn=auto or dyn=up or dyn=down
-DynAssignment {
-  @specialize<Identifier, "dyn"> equalsWithSpaces (ValidDirection | InvalidValue)
-}
-
-// Standalone keywords (no value)
-PercKeyword {
-  @specialize<Identifier, "perc">
-}
-
-UpKeyword {
-  @specialize<Identifier, "up">
-}
-
-DownKeyword {
-  @specialize<Identifier, "down">
-}
-
-MergeKeyword {
-  @specialize<Identifier, "merge">
 }
 
 // Matches: name=value or name = value (for properties other than clef/shift/stem)
@@ -184,25 +127,6 @@ InfoKey { ![V|\n] ":" }
   // Equals with optional spaces on both sides (matches = or spaces = spaces)
   equalsWithSpaces { ($[\t ]+ "=" $[\t ]*) | ("=" $[\t ]*) }
   
-  // -- Values --
-
-  // Valid Clefs (Exact match list)
-  ValidClef { 
-    "treble-8" | "treble+8" | "treble" | 
-    "bass3" | "bass" | 
-    "alto1" | "alto2" | "alto4" | "alto" | 
-    "none" | "perc" 
-  }
-
-  // Valid Shift (A through G)
-  ValidShift { $[A-G]+ }
-  
-  // Valid Stem directions
-  ValidStem { "up" | "down" }
-  
-  // Valid Direction values (for gstem, lyrics, dyn)
-  ValidDirection { "auto" | "up" | "down" }
-  
   // MIDI numbers (integers, can be negative for transpose)
   MidiNumber { "-"? @digit+ }
   
@@ -211,9 +135,6 @@ InfoKey { ![V|\n] ":" }
   
   // Used for generic properties (name=SomethingElse)
   AttributeValue { (@asciiLetter | "+" | "-" | @digit)+ }
-  
-  // Catch-all for invalid values in assignments (fallback)
-  InvalidValue { (@asciiLetter | "+" | "-" | @digit)+ }
 
   // -- Generic Args (rest of line) --
   DirectiveArgs { ![\s%\n=] ![%\n]* }
@@ -234,15 +155,10 @@ InfoKey { ![V|\n] ":" }
     DirectiveKeyword, 
     VoiceKey, 
     InfoKey, 
-    ValidClef, 
-    ValidShift, 
-    ValidStem,
-    ValidDirection,
     MidiNumber,
     Space,
     Identifier,
     DirectiveArgs,
-    InvalidValue,
     Comment, 
     Other 
   }
