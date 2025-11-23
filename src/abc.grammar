@@ -160,12 +160,15 @@ DirectiveLine {
   // COMP field components and attributes
   // Bar components are single characters and should be matched first
   BarComponent { "|" | ":" | "[" | "]" }
-  // Music notes - single letters, standalone
+  // Music notes - single letters (A-G, a-g)
+  // Not followed by : to avoid matching info keys
+  // The lookahead ensures proper tokenization
   MusicNoteComponent { "A" | "B" | "C" | "D" | "E" | "F" | "G" | "a" | "b" | "c" | "d" | "e" | "f" | "g" }
   CompAttribute { "MusicNotes" | "Bar" }
   
 // Generic Info key (T:, M:, etc), but NOT V:, K:, or COMP:
-InfoKey { ![ \t] ![VKC|\n] ":" | ![C|\n] ":" }
+// Matches single letter followed by : (excluding V, K, and the start of COMP)
+InfoKey { ![VK] @asciiLetter ":" }
 
   Space { $[\t ]+ }
   
