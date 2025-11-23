@@ -1,24 +1,27 @@
 @top Program { (line newline)* line? }
 
+// === CHANGE THIS LINE ===
+// Remove the ".js" extension so the bundler can find tokens.ts
+@external tokens lineStartTokens from "./tokens" { InfoKey }
+
 line { 
   CommentedDirective | 
-  MidiLine |    // Specific rule for %%MIDI lines
+  MidiLine |    
   DirectiveLine | 
-  VoiceLine |   // Specific rule for V: lines
-  KeyLine |     // Specific rule for K: lines
-  CompLine |    // Specific rule for COMP: lines
-  InfoLine |    // Generic rule for T:, M:, etc.
+  VoiceLine |   
+  KeyLine |     
+  CompLine |    
+  InfoLine |    
   Comment | 
   Other 
 }
 
-// === 1. MIDI Line (Strict Parsing) ===
-// Example: %%MIDI program 1
+// === 1. MIDI Line ===
 MidiLine {
   MidiKeyword
   Space
   MidiContent
-  (Space MidiContent)*  // Additional attributes (will be flagged as errors)
+  (Space MidiContent)*
   InlineComment?
 }
 
@@ -34,47 +37,16 @@ MidiContent {
   DirectiveArgs
 }
 
-// Matches: program 0-127
-ProgramAssignment {
-  @specialize<Identifier, "program"> Space MidiNumber
-}
+ProgramAssignment { @specialize<Identifier, "program"> Space MidiNumber }
+ChordProgAssignment { @specialize<Identifier, "chordprog"> Space MidiNumber }
+ChannelAssignment { @specialize<Identifier, "channel"> Space MidiNumber }
+DrumAssignment { @specialize<Identifier, "drum"> Space DirectiveArgs }
+GchordAssignment { @specialize<Identifier, "gchord"> Space DirectiveArgs }
+TransposeAssignment { @specialize<Identifier, "transpose"> Space MidiNumber }
+DrumOnKeyword { @specialize<Identifier, "drumon"> }
+DrumOffKeyword { @specialize<Identifier, "drumoff"> }
 
-// Matches: chordprog 0-127
-ChordProgAssignment {
-  @specialize<Identifier, "chordprog"> Space MidiNumber
-}
-
-// Matches: channel 1 or channel 16
-ChannelAssignment {
-  @specialize<Identifier, "channel"> Space MidiNumber
-}
-
-// Matches: drum <any value>
-DrumAssignment {
-  @specialize<Identifier, "drum"> Space DirectiveArgs
-}
-
-// Matches: gchord <any value>
-GchordAssignment {
-  @specialize<Identifier, "gchord"> Space DirectiveArgs
-}
-
-// Matches: transpose <number>
-TransposeAssignment {
-  @specialize<Identifier, "transpose"> Space MidiNumber
-}
-
-// Standalone keywords (no value)
-DrumOnKeyword {
-  @specialize<Identifier, "drumon">
-}
-
-DrumOffKeyword {
-  @specialize<Identifier, "drumoff">
-}
-
-// === 2. Voice Line (Strict Parsing) ===
-// Example: V: V1 clef=bass shift=C or V:V1 clef=bass shift=C
+// === 2. Voice Line ===
 VoiceLine {
   VoiceKey 
   Space?
@@ -85,11 +57,10 @@ VoiceLine {
 
 VoiceContent {
   GenericAssignment |
-  Identifier // Handles the "V1" or "V2" at start
+  Identifier
 }
 
-// === 3. Key Line (Strict Parsing) ===
-// Example: K: C clef=bass or K:Cmaj clef=treble
+// === 3. Key Line ===
 KeyLine {
   KeyKey
   Space?
@@ -100,13 +71,10 @@ KeyLine {
 
 KeyContent {
   GenericAssignment |
-  Identifier // Handles the key signature like "C", "Cmaj", "Amin", etc.
+  Identifier
 }
 
-// === 4. COMP Line (Composition Field) ===
-// Example: COMP: MusicNotes A B C
-// or: COMP: A B C (components can be used directly)
-// Spaces are optional: "[FGD" same as "[ F G D"
+// === 4. COMP Line ===
 CompLine {
   CompKey
   Space?
@@ -119,30 +87,26 @@ CompContent {
   BarComponent |
   MusicNoteComponent |
   CompAttribute |
-  Identifier // Fallback for other content
+  Identifier 
 }
 
-// Matches: name=value or name = value (for properties other than clef/shift/stem)
 GenericAssignment {
   Identifier equalsWithSpaces AttributeValue
 }
 
-
 // === 5. Generic Info Line ===
-// Example: T: My Song
 InfoLine {
-  InfoKey
+  InfoKey // Matched by external tokenizer
   ( Space DirectiveArgs? )?
   InlineComment?
 }
 
-// === 3. Directives ===
+// === 6. Directives ===
 DirectiveLine { 
   DirectiveKeyword 
   ( Space DirectiveArgs? )? 
   InlineComment? 
 }
-
 
 @tokens {
   newline { "\n" }
@@ -152,39 +116,37 @@ DirectiveLine {
   
   DirectiveKeyword { "%%" ![ \t%\n]+ }
   
-  // Explicit V:, K:, and COMP: keys to separate them from generic infos
+  // Explicit Keys
   VoiceKey { "V:" }
   KeyKey { "K:" }
   CompKey { "COMP:" }
   
-  // COMP field components and attributes
-  // Bar components are single characters and should be matched first
+  // -- COMP Context --
+  
+  // Bar components (brackets, pipes, colons)
   BarComponent { "|" | ":" | "[" | "]" }
-  // Music notes - single letters (A-G, a-g)
-  // Not followed by : to avoid matching info keys
-  // The lookahead ensures proper tokenization
-  MusicNoteComponent { "A" | "B" | "C" | "D" | "E" | "F" | "G" | "a" | "b" | "c" | "d" | "e" | "f" | "g" }
+  
+  // FIX: Music notes no longer need negative lookahead (![:]).
+  // Because InfoKey is handled externally at line-start, 
+  // "A" here will safely match "A" anywhere else (inside COMP), 
+  // regardless of what comes next.
+  MusicNoteComponent { ("A" | "B" | "C" | "D" | "E" | "F" | "G" | "a" | "b" | "c" | "d" | "e" | "f" | "g") }
+  
   CompAttribute { "MusicNotes" | "Bar" }
   
-// Generic Info key (T:, M:, etc), but NOT V:, K:, or COMP:
-// Matches single letter followed by : (excluding V, K, and the start of COMP)
-InfoKey { ![VK] @asciiLetter ":" }
+  // Note: InfoKey is REMOVED from here. It is now external.
 
   Space { $[\t ]+ }
   
-  // Equals with optional spaces on both sides (matches = or spaces = spaces)
   equalsWithSpaces { ($[\t ]+ "=" $[\t ]*) | ("=" $[\t ]*) }
   
-  // MIDI numbers (integers, can be negative for transpose)
   MidiNumber { "-"? @digit+ }
   
-  // A generic alphanumeric word (includes +/- for treble+8, treble-8)
   Identifier { (@asciiLetter | "+" | "-" | @digit)+ }
   
-  // Used for generic properties (name=SomethingElse)
   AttributeValue { (@asciiLetter | "+" | "-" | @digit)+ }
 
-  // -- Generic Args (rest of line) --
+  // -- Generic Args --
   DirectiveArgs { ![\s%\n=] ![%\n]* }
   
   CommentedDirective { "%%%" ![\n]* }
@@ -192,10 +154,6 @@ InfoKey { ![VK] @asciiLetter ":" }
   Comment { "%" ![\n]* }
   Other { ![\n]+ }
   
-  // Precedence: 
-  // 1. Look for V:, K:, and COMP: first
-  // 2. Look for specific Valid tokens before generic Identifiers
-  // 3. equals before Space to match = with surrounding spaces
   @precedence { 
     equalsWithSpaces,
     CommentedDirective,
@@ -207,7 +165,7 @@ InfoKey { ![VK] @asciiLetter ":" }
     BarComponent,
     MusicNoteComponent,
     CompAttribute,
-    InfoKey, 
+    // InfoKey removed (External tokens have implicit priority)
     MidiNumber,
     Space,
     Identifier,
