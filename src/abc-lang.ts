@@ -377,8 +377,9 @@ function generateStyleTags() {
     CompKey: t.keyword,                     // COMP: - purple
     
     // COMP field elements
-    CompAttribute: t.meta,                  // MusicNotes attribute - special color (cyan/meta)
+    CompAttribute: t.meta,                  // MusicNotes, Bar attributes - special color (cyan/meta)
     MusicNoteComponent: t.atom,             // A, B, C, D, E, F, G - special color (red/atom)
+    BarComponent: t.punctuation,            // |, :, [, ] - special color (punctuation)
     
     // Values and identifiers  
     MidiNumber: t.number,                   // MIDI numbers - orange

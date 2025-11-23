@@ -32,6 +32,18 @@ export const compAttributes: CompAttribute[] = [
       { component: "F", description: "Note F" },
       { component: "G", description: "Note G" }
     ]
+  },
+  {
+    attribute: "Bar",
+    description: "Bar lines and brackets (standalone, no value required)",
+    requiresValue: false,
+    color: "bar", // Special color identifier for bars
+    components: [
+      { component: "|", description: "Bar line" },
+      { component: ":", description: "Repeat marker" },
+      { component: "[", description: "Left bracket" },
+      { component: "]", description: "Right bracket" }
+    ]
   }
 ]
 
