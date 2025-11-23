@@ -158,8 +158,9 @@ DirectiveLine {
   CompKey { "COMP:" }
   
   // COMP field components and attributes
-  MusicNoteComponent { "A" | "B" | "C" | "D" | "E" | "F" | "G" }
-  BarComponent { "|" | "[" | "]" }
+  // Use lookahead to prevent matching when followed by ":"
+  MusicNoteComponent { ("A" | "B" | "C" | "D" | "E" | "F" | "G") ![:] }
+  BarComponent { "|" | ":" | "[" | "]" }
   CompAttribute { "MusicNotes" | "Bar" }
   
 // Generic Info key (T:, M:, etc), but NOT V:, K:, or COMP:
