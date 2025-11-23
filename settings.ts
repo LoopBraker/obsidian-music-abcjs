@@ -110,17 +110,28 @@ class FolderSuggest {
 export interface MusicPluginSettings {
   soundFont: 'abcjs' | 'FluidR3_GM' | 'MusyngKite';
   templatesFolder: string;
+  darkTheme: 'oneDark' | 'solarizedDark';
+  lightTheme: 'solarizedLight' | 'githubLight';
 }
 
 export const DEFAULT_SETTINGS: MusicPluginSettings = {
   soundFont: 'MusyngKite',
-  templatesFolder: ''
+  templatesFolder: '',
+  darkTheme: 'oneDark',
+  lightTheme: 'solarizedLight'
 };
 
 export const SOUND_FONT_DESCRIPTIONS = {
   'abcjs': 'Bright, crisp',
   'FluidR3_GM': 'Loud, deeper',
   'MusyngKite': 'Muted, more mids'
+};
+
+export const THEME_DESCRIPTIONS = {
+  'oneDark': 'One Dark (default dark theme)',
+  'solarizedDark': 'Solarized Dark',
+  'solarizedLight': 'Solarized Light (default light theme)',
+  'githubLight': 'GitHub Light'
 };
 
 export class MusicSettingTab extends PluginSettingTab {
@@ -148,6 +159,34 @@ export class MusicSettingTab extends PluginSettingTab {
         .onChange(async (value: 'abcjs' | 'FluidR3_GM' | 'MusyngKite') => {
           this.plugin.settings.soundFont = value;
           await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName('Dark Theme')
+      .setDesc('Editor theme when Obsidian is in dark mode')
+      .addDropdown(dropdown => dropdown
+        .addOption('oneDark', THEME_DESCRIPTIONS.oneDark)
+        .addOption('solarizedDark', THEME_DESCRIPTIONS.solarizedDark)
+        .setValue(this.plugin.settings.darkTheme)
+        .onChange(async (value: 'oneDark' | 'solarizedDark') => {
+          this.plugin.settings.darkTheme = value;
+          await this.plugin.saveSettings();
+          // Refresh editor if open
+          this.plugin.refreshEditorTheme();
+        }));
+
+    new Setting(containerEl)
+      .setName('Light Theme')
+      .setDesc('Editor theme when Obsidian is in light mode')
+      .addDropdown(dropdown => dropdown
+        .addOption('solarizedLight', THEME_DESCRIPTIONS.solarizedLight)
+        .addOption('githubLight', THEME_DESCRIPTIONS.githubLight)
+        .setValue(this.plugin.settings.lightTheme)
+        .onChange(async (value: 'solarizedLight' | 'githubLight') => {
+          this.plugin.settings.lightTheme = value;
+          await this.plugin.saveSettings();
+          // Refresh editor if open
+          this.plugin.refreshEditorTheme();
         }));
 
     new Setting(containerEl)

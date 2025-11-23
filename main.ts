@@ -23,6 +23,13 @@ export default class MusicPlugin extends Plugin {
 		// Add settings tab
 		this.addSettingTab(new MusicSettingTab(this.app, this));
 
+		// Listen for theme changes in Obsidian
+		this.registerEvent(
+			this.app.workspace.on('css-change', () => {
+				this.refreshEditorTheme();
+			})
+		);
+
 		// Although unused by us, a valid DOM element is needed to create a SynthController
 		const unusedPlaybackControls = document.createElement('aside');
 		unusedPlaybackControls.id = PLAYBACK_CONTROLS_ID;
@@ -51,6 +58,16 @@ export default class MusicPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	refreshEditorTheme() {
+		// Find all open ABC editor views and refresh their themes
+		this.app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE).forEach(leaf => {
+			const view = leaf.view;
+			if (view instanceof AbcEditorView) {
+				view.refreshTheme();
+			}
+		});
 	}
 
 	async codeProcessor(source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) {

@@ -8,6 +8,7 @@ import { bracketMatching, indentOnInput, foldGutter, foldService, syntaxHighligh
 import { tags } from '@lezer/highlight';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { abc } from './src/abc-lang';
+import { solarizedLight, solarizedDark, githubLight } from './src/themes';
 
 export const ABC_EDITOR_VIEW_TYPE = 'abc-music-editor';
 
@@ -108,6 +109,7 @@ export class AbcEditorView extends ItemView {
   private editorContainer: HTMLElement | null = null;
   private templateContainer: HTMLElement | null = null;
   private templateDropdown: HTMLSelectElement | null = null;
+  private currentTheme: any = oneDark;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -152,13 +154,16 @@ export class AbcEditorView extends ItemView {
     // Create container for CodeMirror
     this.editorContainer = container.createDiv({ cls: 'abc-codemirror-container' });
 
+    // Get appropriate theme based on Obsidian's current theme
+    this.currentTheme = this.getTheme();
+
     // Create CodeMirror editor
     this.editorView = new EditorView({
       state: EditorState.create({
         doc: this.currentContent,
         extensions: [
           // 1. Theme Configuration
-          oneDark,
+          this.currentTheme,
           
           // 2. Language & Highlighting with proper Lezer grammar
           abc(),  // Use the abc() function from src/abc-lang.ts
@@ -204,13 +209,11 @@ export class AbcEditorView extends ItemView {
             }
           }),
           
-          // 4. Force Colors to prevent invisible text / light theme bleed
+          // 4. Editor styling
           EditorView.theme({
             "&": {
               fontSize: "14px",
-              height: "100%",
-              backgroundColor: "#282c34",  // Force One Dark Background
-              color: "#abb2bf"              // Force One Dark Text
+              height: "100%"
             },
             ".cm-scroller": {
               fontFamily: "var(--font-monospace, 'Courier New', monospace)",
@@ -221,10 +224,6 @@ export class AbcEditorView extends ItemView {
             },
             ".cm-line": {
               padding: "0 10px",
-            },
-            ".cm-gutters": {
-              backgroundColor: "#282c34",
-              borderRight: "1px solid #3e4451"
             },
             "&.cm-focused": {
               outline: "none",
@@ -438,5 +437,124 @@ export class AbcEditorView extends ItemView {
 
   async refreshTemplateSelector(): Promise<void> {
     await this.createTemplateSelector();
+  }
+
+  private getTheme(): any {
+    const app = (this.app as any);
+    const plugin = app.plugins?.plugins?.['music-code-blocks'];
+    const isDark = document.body.classList.contains('theme-dark');
+    
+    if (isDark) {
+      const darkTheme = plugin?.settings?.darkTheme || 'oneDark';
+      switch (darkTheme) {
+        case 'solarizedDark': return solarizedDark;
+        case 'oneDark': 
+        default: return oneDark;
+      }
+    } else {
+      const lightTheme = plugin?.settings?.lightTheme || 'solarizedLight';
+      switch (lightTheme) {
+        case 'githubLight': return githubLight;
+        case 'solarizedLight':
+        default: return solarizedLight;
+      }
+    }
+  }
+
+  refreshTheme(): void {
+    if (!this.editorView) return;
+    
+    const newTheme = this.getTheme();
+    if (newTheme !== this.currentTheme) {
+      this.currentTheme = newTheme;
+      
+      // Recreate editor with new theme
+      const content = this.editorView.state.doc.toString();
+      const selection = this.editorView.state.selection;
+      
+      this.editorView.destroy();
+      this.createEditorWithTheme(content, selection);
+    }
+  }
+
+  private createEditorWithTheme(content: string, selection?: any): void {
+    if (!this.editorContainer) return;
+
+    this.editorView = new EditorView({
+      state: EditorState.create({
+        doc: content,
+        selection: selection,
+        extensions: [
+          // 1. Theme Configuration
+          this.currentTheme,
+          
+          // 2. Language & Highlighting with proper Lezer grammar
+          abc(),
+          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+          
+          // 3. Essential Extensions
+          abcFoldService,
+          foldGutter(),
+          lineNumbers(),
+          highlightActiveLineGutter(),
+          highlightSpecialChars(),
+          history(),
+          drawSelection(),
+          EditorState.allowMultipleSelections.of(true),
+          indentOnInput(),
+          bracketMatching(),
+          closeBrackets(),
+          autocompletion(),
+          rectangularSelection(),
+          crosshairCursor(),
+          highlightActiveLine(),
+          highlightSelectionMatches(),
+          keymap.of([
+            { key: 'Mod-/', run: toggleAbcComment },
+            ...closeBracketsKeymap,
+            ...defaultKeymap,
+            ...searchKeymap,
+            ...historyKeymap,
+            ...completionKeymap,
+            indentWithTab,
+          ]),
+          
+          EditorView.updateListener.of((update) => {
+            if (update.docChanged) {
+              if (this.updateTimeout) clearTimeout(this.updateTimeout);
+              this.updateTimeout = setTimeout(() => {
+                if (this.onChange) this.onChange(update.state.doc.toString());
+              }, 300);
+            }
+            if (update.selectionSet && this.onSelectionChange) {
+              const selection = update.state.selection.main;
+              this.onSelectionChange(selection.from, selection.to);
+            }
+          }),
+          
+          // 4. Theme-specific styling
+          EditorView.theme({
+            "&": {
+              fontSize: "14px",
+              height: "100%"
+            },
+            ".cm-scroller": {
+              fontFamily: "var(--font-monospace, 'Courier New', monospace)",
+              lineHeight: "1.6",
+            },
+            ".cm-content": {
+              padding: "10px 0",
+            },
+            ".cm-line": {
+              padding: "0 10px",
+            },
+            "&.cm-focused": {
+              outline: "none",
+            },
+          }),
+        ],
+      }),
+      parent: this.editorContainer,
+    });
   }
 }

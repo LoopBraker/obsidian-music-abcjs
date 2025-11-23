@@ -1,4 +1,6 @@
 {
   "soundFont": "MusyngKite",
-  "templatesFolder": "Templates"
+  "templatesFolder": "Templates",
+  "darkTheme": "oneDark",
+  "lightTheme": "githubLight"
 }
