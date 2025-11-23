@@ -305,36 +305,31 @@ function generateStyleTags() {
     // Values and identifiers  
     MidiNumber: t.number,                   // MIDI numbers - orange
     InvalidValue: t.invalid,                // Invalid values - red
-    Identifier: t.variableName,             // V1, V2, etc - default
+    Identifier: t.string,             // V1, V2, etc - default
     
-    // Generic assignments and values (for any attribute)
-    "GenericAssignment/Identifier": t.propertyName,  // attribute name - blue
-    AttributeValue: t.string,               // generic values - green
-    DirectiveArgs: t.string,                // directive args - green
+    // Voice attributes - green (attribute names)
+    "GenericAssignment/Identifier": t.propertyName,
+    
+    // MIDI attributes - green (style the parent nodes directly)
+    //define a variable to hold the t.value to change all at once
+    ProgramAssignment: t.propertyName,
+    ChordProgAssignment: t.propertyName,
+    ChannelAssignment: t.propertyName,
+    DrumAssignment: t.propertyName,
+    GchordAssignment: t.propertyName,
+    TransposeAssignment: t.propertyName,
+    DrumOnKeyword: t.propertyName,
+    DrumOffKeyword: t.propertyName,
+    
+    // Attribute values - blue
+    AttributeValue: t.string,
+    DirectiveArgs: t.string,
     
     // Comments
-    Comment: t.lineComment,                 // % comments - gray italic
-    InlineComment: t.lineComment,           // % at end of line - gray italic
-    CommentedDirective: t.lineComment,      // %%% commented directives - gray italic
+    Comment: t.lineComment,
+    InlineComment: t.lineComment,
+    CommentedDirective: t.lineComment,
   }
-  
-  // Add MIDI attribute styles dynamically (for grammar-defined nodes)
-  midiAttributes.forEach(attr => {
-    const capitalizedAttr = attr.attribute.charAt(0).toUpperCase() + attr.attribute.slice(1)
-    const nodeType = attr.valueType === "standalone" 
-      ? `${capitalizedAttr}Keyword/Identifier`
-      : `${capitalizedAttr}Assignment/Identifier`
-    tags[nodeType] = t.propertyName
-  })
-  
-  // Add voice attribute styles dynamically (for grammar-defined nodes)
-  voiceAttributes.forEach(attr => {
-    const capitalizedAttr = attr.attribute.charAt(0).toUpperCase() + attr.attribute.slice(1)
-    const nodeType = attr.valueType === "standalone"
-      ? `${capitalizedAttr}Keyword/Identifier`
-      : `${capitalizedAttr}Assignment/Identifier`
-    tags[nodeType] = t.propertyName
-  })
   
   return tags
 }
