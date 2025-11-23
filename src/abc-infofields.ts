@@ -39,6 +39,7 @@ export const infoFieldDefinitions: Record<string, string> = {
   "S": "Source",
   "s": "Symbol definition",
   "T": "Title (required)",
+  "U": "User-defined field",
   "V": "The V: field, followed by a voice name, indicates that the following music belongs to that voice. The voice name can be a number or a string (e.g. \"Tenor\"). The V: field can be written on a line by itself, or enclosed in square brackets at the start of a note line.",
   "W": "Words (lyrics after tune)",
   "w": "Words (lyrics aligned with notes)",

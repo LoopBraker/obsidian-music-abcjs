@@ -106,11 +106,12 @@ KeyContent {
 // === 4. COMP Line (Composition Field) ===
 // Example: COMP: MusicNotes A B C
 // or: COMP: A B C (components can be used directly)
+// Spaces are optional: "[FGD" same as "[ F G D"
 CompLine {
   CompKey
   Space?
   CompContent
-  (Space CompContent)*
+  (Space? CompContent)*
   InlineComment?
 }
 
