@@ -111,7 +111,7 @@ export interface MusicPluginSettings {
   soundFont: 'abcjs' | 'FluidR3_GM' | 'MusyngKite';
   templatesFolder: string;
   darkTheme: 'oneDark' | 'solarizedDark';
-  lightTheme: 'solarizedLight' | 'githubLight';
+  lightTheme: 'solarizedLight';
 }
 
 export const DEFAULT_SETTINGS: MusicPluginSettings = {
@@ -130,8 +130,7 @@ export const SOUND_FONT_DESCRIPTIONS = {
 export const THEME_DESCRIPTIONS = {
   'oneDark': 'One Dark (default dark theme)',
   'solarizedDark': 'Solarized Dark',
-  'solarizedLight': 'Solarized Light (default light theme)',
-  'githubLight': 'GitHub Light'
+  'solarizedLight': 'Solarized Light (light theme)'
 };
 
 export class MusicSettingTab extends PluginSettingTab {
@@ -180,9 +179,8 @@ export class MusicSettingTab extends PluginSettingTab {
       .setDesc('Editor theme when Obsidian is in light mode')
       .addDropdown(dropdown => dropdown
         .addOption('solarizedLight', THEME_DESCRIPTIONS.solarizedLight)
-        .addOption('githubLight', THEME_DESCRIPTIONS.githubLight)
         .setValue(this.plugin.settings.lightTheme)
-        .onChange(async (value: 'solarizedLight' | 'githubLight') => {
+        .onChange(async (value: 'solarizedLight') => {
           this.plugin.settings.lightTheme = value;
           await this.plugin.saveSettings();
           // Refresh editor if open

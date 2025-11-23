@@ -7,8 +7,9 @@ import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } 
 import { bracketMatching, indentOnInput, foldGutter, foldService, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { oneDark } from '@codemirror/theme-one-dark';
+import { solarizedLight } from 'cm6-theme-solarized-light';
+import { solarizedDark } from 'cm6-theme-solarized-dark';
 import { abc } from './src/abc-lang';
-import { solarizedLight, solarizedDark, githubLight } from './src/themes';
 
 export const ABC_EDITOR_VIEW_TYPE = 'abc-music-editor';
 
@@ -453,11 +454,8 @@ export class AbcEditorView extends ItemView {
       }
     } else {
       const lightTheme = plugin?.settings?.lightTheme || 'solarizedLight';
-      switch (lightTheme) {
-        case 'githubLight': return githubLight;
-        case 'solarizedLight':
-        default: return solarizedLight;
-      }
+      // Currently only solarizedLight available, but structure allows future themes
+      return solarizedLight;
     }
   }
 
