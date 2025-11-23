@@ -116,9 +116,9 @@ CompLine {
 }
 
 CompContent {
-  CompAttribute |
-  MusicNoteComponent |
   BarComponent |
+  MusicNoteComponent |
+  CompAttribute |
   Identifier // Fallback for other content
 }
 
@@ -158,9 +158,10 @@ DirectiveLine {
   CompKey { "COMP:" }
   
   // COMP field components and attributes
-  // Use lookahead to prevent matching when followed by ":"
-  MusicNoteComponent { ("A" | "B" | "C" | "D" | "E" | "F" | "G") ![:] }
+  // Bar components are single characters and should be matched first
   BarComponent { "|" | ":" | "[" | "]" }
+  // Music notes - single letters, standalone
+  MusicNoteComponent { "A" | "B" | "C" | "D" | "E" | "F" | "G" | "a" | "b" | "c" | "d" | "e" | "f" | "g" }
   CompAttribute { "MusicNotes" | "Bar" }
   
 // Generic Info key (T:, M:, etc), but NOT V:, K:, or COMP:
@@ -200,8 +201,8 @@ InfoKey { ![ \t] ![VKC|\n] ":" | ![C|\n] ":" }
     VoiceKey,
     KeyKey,
     CompKey,
-    MusicNoteComponent,
     BarComponent,
+    MusicNoteComponent,
     CompAttribute,
     InfoKey, 
     MidiNumber,

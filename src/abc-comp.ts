@@ -30,7 +30,14 @@ export const compAttributes: CompAttribute[] = [
       { component: "D", description: "Note D" },
       { component: "E", description: "Note E" },
       { component: "F", description: "Note F" },
-      { component: "G", description: "Note G" }
+      { component: "G", description: "Note G" },
+      { component: "a", description: "Note a (lower octave)" },
+      { component: "b", description: "Note b (lower octave)" },
+      { component: "c", description: "Note c (lower octave)" },
+      { component: "d", description: "Note d (lower octave)" },
+      { component: "e", description: "Note e (lower octave)" },
+      { component: "f", description: "Note f (lower octave)" },
+      { component: "g", description: "Note g (lower octave)" }
     ]
   },
   {
