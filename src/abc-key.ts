@@ -1,100 +1,134 @@
 /**
  * ABC Key Signature Definitions
- * K: (Key) info field - key signatures, modes, and related attributes
- * 
- * This file is prepared for future expansion of key signature features
+ * K: (Key) info field attributes
  */
 
-export interface KeySignatureConfig {
-  key: string
+export interface KeyAttributeConfig {
+  attribute: string
   description: string
-  sharps?: number
-  flats?: number
-  mode?: string
+  valueType: "assignment" | "standalone"
+  validValues?: string[]
 }
 
-// Common key signatures
-export const majorKeys = [
-  "C", "G", "D", "A", "E", "B", "F#", "C#",  // Sharps
-  "F", "Bb", "Eb", "Ab", "Db", "Gb", "Cb"   // Flats
+// Key attributes configuration strictly based on the provided manual text
+export const keyAttributes: KeyAttributeConfig[] = [
+  {
+    attribute: "clef",
+    description: "Set the clef type",
+    valueType: "assignment",
+    // Lists "G, g, C, c, F, f", "treble, alto, tenor, bass", "none", "perc", "P"
+    validValues: [
+      "treble", "alto", "tenor", "bass", "none", "perc", 
+      "G", "g", "C", "c", "F", "f", "P"
+    ]
+  },
+  {
+    attribute: "octave",
+    description: "Transposes the music by <number> octaves",
+    valueType: "assignment"
+  },
+  {
+    attribute: "transpose",
+    description: "Transposes playback",
+    valueType: "assignment"
+  },
+  {
+    attribute: "t",
+    description: "Transposes playback (alias for transpose)",
+    valueType: "assignment"
+  },
+  {
+    attribute: "stafflines",
+    description: "Sets the number of lines of the associated staff",
+    valueType: "assignment"
+  },
+  {
+    attribute: "staffscale",
+    description: "Sets the staff scale. Default 1, max 3, min 0.5",
+    valueType: "assignment"
+  },
+  {
+    attribute: "cue",
+    description: "Sets the music scale to 0.7 (on) or 1.0 (off)",
+    valueType: "assignment",
+    validValues: ["on", "off"]
+  },
+  // Standalone modifiers explicitly listed in the manual: [+8] [-8] [^8] [ 8]
+  {
+    attribute: "+8",
+    description: "Print 8 above the clef",
+    valueType: "standalone"
+  },
+  {
+    attribute: "-8",
+    description: "Print 8 below the clef",
+    valueType: "standalone"
+  },
+  {
+    attribute: "^8",
+    description: "Print 8 above the clef, and perform octave transposition",
+    valueType: "standalone"
+  },
+  {
+    attribute: "_8", // Matches the [ 8] (8 below) visual description
+    description: "Print 8 below the clef, and perform octave transposition",
+    valueType: "standalone"
+  }
 ]
 
-export const minorKeys = [
-  "Am", "Em", "Bm", "F#m", "C#m", "G#m", "D#m", "A#m",  // Sharps
-  "Dm", "Gm", "Cm", "Fm", "Bbm", "Ebm", "Abm"           // Flats
-]
+// Key Attribute Definitions (for quick lookup)
+export const keyAttributeDefinitions: Record<string, string> = keyAttributes.reduce(
+  (acc, attr) => {
+    acc[attr.attribute] = attr.description
+    return acc
+  },
+  {} as Record<string, string>
+)
 
-// Modes
-export const modes = [
-  "major", "minor", "ionian", "dorian", "phrygian",
-  "lydian", "mixolydian", "aeolian", "locrian"
-]
+// Valid key attributes set
+export const validKeyAttributes = new Set(
+  keyAttributes.map(attr => attr.attribute)
+)
 
-// Key signature definitions (for future use)
-export const keySignatureDefinitions: Record<string, string> = {
-  "C": "C major (no sharps or flats)",
-  "G": "G major (1 sharp: F#)",
-  "D": "D major (2 sharps: F#, C#)",
-  "A": "A major (3 sharps: F#, C#, G#)",
-  "E": "E major (4 sharps: F#, C#, G#, D#)",
-  "B": "B major (5 sharps: F#, C#, G#, D#, A#)",
-  "F#": "F# major (6 sharps)",
-  "C#": "C# major (7 sharps)",
-  
-  "F": "F major (1 flat: Bb)",
-  "Bb": "Bb major (2 flats: Bb, Eb)",
-  "Eb": "Eb major (3 flats: Bb, Eb, Ab)",
-  "Ab": "Ab major (4 flats: Bb, Eb, Ab, Db)",
-  "Db": "Db major (5 flats: Bb, Eb, Ab, Db, Gb)",
-  "Gb": "Gb major (6 flats)",
-  "Cb": "Cb major (7 flats)",
-  
-  "Am": "A minor (no sharps or flats)",
-  "Em": "E minor (1 sharp: F#)",
-  "Bm": "B minor (2 sharps: F#, C#)",
-  "F#m": "F# minor (3 sharps: F#, C#, G#)",
-  "C#m": "C# minor (4 sharps: F#, C#, G#, D#)",
-  "G#m": "G# minor (5 sharps)",
-  "D#m": "D# minor (6 sharps)",
-  
-  "Dm": "D minor (1 flat: Bb)",
-  "Gm": "G minor (2 flats: Bb, Eb)",
-  "Cm": "C minor (3 flats: Bb, Eb, Ab)",
-  "Fm": "F minor (4 flats: Bb, Eb, Ab, Db)",
-  "Bbm": "Bb minor (5 flats)",
-  "Ebm": "Eb minor (6 flats)",
-  "Abm": "Ab minor (7 flats)",
+// Valid clef values strictly based on the manual text
+export const validClefs = new Set([
+  "treble", "alto", "tenor", "bass", "none", "perc", 
+  "G", "g", "C", "c", "F", "f", "P"
+])
+
+// Clef Definitions based strictly on manual descriptions
+export const clefDefinitions: Record<string, string> = {
+  "treble": "Treble clef",
+  "alto": "Alto clef",
+  "tenor": "Tenor clef",
+  "bass": "Bass clef",
+  "none": "No clef",
+  "perc": "Percussion clef",
+  "P": "Percussion clef",
+  "G": "Treble clef",
+  "g": "Treble clef",
+  "C": "Alto clef",
+  "c": "Alto clef",
+  "F": "Bass clef",
+  "f": "Bass clef"
 }
 
-// Mode definitions
-export const modeDefinitions: Record<string, string> = {
-  "major": "Major scale (Ionian mode)",
-  "minor": "Natural minor scale (Aeolian mode)",
-  "ionian": "Ionian mode (same as major)",
-  "dorian": "Dorian mode (minor with raised 6th)",
-  "phrygian": "Phrygian mode (minor with lowered 2nd)",
-  "lydian": "Lydian mode (major with raised 4th)",
-  "mixolydian": "Mixolydian mode (major with lowered 7th)",
-  "aeolian": "Aeolian mode (same as natural minor)",
-  "locrian": "Locrian mode (diminished)"
+// Helper to get key attribute config
+export function getKeyAttributeConfig(attribute: string): KeyAttributeConfig | undefined {
+  return keyAttributes.find(attr => attr.attribute === attribute)
 }
 
-// Helper to get key signature description
-export function getKeySignatureDescription(key: string): string {
-  return keySignatureDefinitions[key] || `Key signature: ${key}`
+// Helper to check if attribute is valid
+export function isValidKeyAttribute(attribute: string): boolean {
+  return validKeyAttributes.has(attribute)
 }
 
-// Helper to get mode description
-export function getModeDescription(mode: string): string {
-  return modeDefinitions[mode.toLowerCase()] || `Mode: ${mode}`
+// Helper to get key attribute description
+export function getKeyAttributeDescription(attribute: string): string {
+  return keyAttributeDefinitions[attribute] || "Key attribute"
 }
 
-// Helper to check if a key is valid
-export function isValidKey(key: string): boolean {
-  return majorKeys.includes(key) || minorKeys.includes(key)
-}
-
-// Helper to check if a mode is valid
-export function isValidMode(mode: string): boolean {
-  return modes.includes(mode.toLowerCase())
+// Helper to get clef description
+export function getClefDescription(clef: string): string {
+  return clefDefinitions[clef] || "Clef type"
 }

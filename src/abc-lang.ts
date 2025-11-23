@@ -20,6 +20,11 @@ import {
   directionDefinitions,
   getVoiceAttributeConfig
 } from "./abc-voices"
+import {
+  keyAttributes,
+  keyAttributeDefinitions,
+  getKeyAttributeConfig
+} from "./abc-key"
 
 // Add MIDI to directives set (special handling)
 const allDirectives = new Set(validDirectives)
@@ -31,8 +36,14 @@ const voiceAttrPattern = voiceAttributes
   .map(attr => `${attr.attribute}=\\w*`)
   .join("|")
 
-// Build complete word matching regex
-const wordMatchRegex = new RegExp(`%%\\w*|[A-Za-z]:?|${voiceAttrPattern}|\\w+`)
+// Generate dynamic regex pattern for key attributes with assignments
+const keyAttrPattern = keyAttributes
+  .filter(attr => attr.valueType === "assignment")
+  .map(attr => `${attr.attribute}=\\w*`)
+  .join("|")
+
+// Build complete word matching regex (includes both voice and key attributes)
+const wordMatchRegex = new RegExp(`%%\\w*|[A-Za-z]:?|${voiceAttrPattern}|${keyAttrPattern}|\\w+`)
 
 // Autocompletion for directives and info keys
 function abcCompletions(context: CompletionContext) {
@@ -78,6 +89,7 @@ function abcCompletions(context: CompletionContext) {
   
   const isInComment = /^%(?!%)/.test(lineText)  // Line starts with % but not %%
   const isInVoiceLine = /^V:\s*\S/.test(lineText)  // V: or V:X (with or without space)
+  const isInKeyLine = /^K:\s*\S/.test(lineText)    // K: or K:C (with or without space)
   const isInAnyInfoLine = /^[A-Za-z]:\s+/.test(lineText)
   const lineStartsWithDirective = /^%%/.test(lineText)  // Line starts with directive
   
@@ -117,6 +129,18 @@ function abcCompletions(context: CompletionContext) {
     }
   }
   
+  // If in a K: line, suggest key attributes
+  if (isInKeyLine && word.text.match(/^\w+$/)) {
+    return {
+      from: word.from,
+      options: keyAttributes.map(attr => ({
+        label: attr.attribute,
+        type: "property",
+        info: attr.description
+      }))
+    }
+  }
+  
   // Complete info keys ONLY at start of line (not if already in an info line or directive line)
   if (word.text.match(/^[A-Za-z]:?$/) && !isInAnyInfoLine && !lineStartsWithDirective) {
     return {
@@ -129,12 +153,16 @@ function abcCompletions(context: CompletionContext) {
     }
   }
   
-  // Complete voice attribute values dynamically
-  // Check if word matches any voice attribute with "=" (e.g., "clef=", "stem=", "name=")
+  // Complete voice/key attribute values dynamically
+  // Check if word matches any attribute with "=" (e.g., "clef=", "stem=", "name=")
   const attrMatch = word.text.match(/^(\w+)=/)
-  if (attrMatch && isInVoiceLine) {
+  if (attrMatch && (isInVoiceLine || isInKeyLine)) {
     const attrName = attrMatch[1]
-    const config = voiceAttributes.find(attr => attr.attribute === attrName)
+    
+    // Look for attribute in voice or key attributes depending on line type
+    const config = isInVoiceLine 
+      ? voiceAttributes.find(attr => attr.attribute === attrName)
+      : keyAttributes.find(attr => attr.attribute === attrName)
     
     if (config && config.validValues) {
       // Generate completions for attributes with predefined valid values
@@ -191,6 +219,21 @@ const abcLinter = linter(view => {
     
     // Check VoiceKey tokens (V:)
     if (node.name === "VoiceKey") {
+      const text = view.state.doc.sliceString(node.from, node.to)
+      const key = text.slice(0, -1) // Remove :
+      
+      if (!validInfoKeys.has(key)) {
+        diagnostics.push({
+          from: node.from,
+          to: node.to,
+          severity: "warning",
+          message: `Unknown info key: ${key}:`
+        })
+      }
+    }
+    
+    // Check KeyKey tokens (K:)
+    if (node.name === "KeyKey") {
       const text = view.state.doc.sliceString(node.from, node.to)
       const key = text.slice(0, -1) // Remove :
       
@@ -299,8 +342,9 @@ function generateStyleTags() {
     // Core ABC syntax elements
     DirectiveKeyword: t.namespace,            // %%keyword - purple
     MidiKeyword: t.keyword,                 // %%MIDI - purple
-    InfoKey: t.typeName,                    // T:, M:, K: - blue
+    InfoKey: t.typeName,                    // T:, M:, etc - blue
     VoiceKey: t.keyword,                    // V: - purple
+    KeyKey: t.keyword,                      // K: - purple
     
     // Values and identifiers  
     MidiNumber: t.number,                   // MIDI numbers - orange

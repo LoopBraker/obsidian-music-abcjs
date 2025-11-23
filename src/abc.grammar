@@ -5,6 +5,7 @@ line {
   MidiLine |    // Specific rule for %%MIDI lines
   DirectiveLine | 
   VoiceLine |   // Specific rule for V: lines
+  KeyLine |     // Specific rule for K: lines
   InfoLine |    // Generic rule for T:, M:, etc.
   Comment | 
   Other 
@@ -86,13 +87,28 @@ VoiceContent {
   Identifier // Handles the "V1" or "V2" at start
 }
 
+// === 3. Key Line (Strict Parsing) ===
+// Example: K: C clef=bass or K:Cmaj clef=treble
+KeyLine {
+  KeyKey
+  Space?
+  KeyContent
+  (Space KeyContent)*
+  InlineComment?
+}
+
+KeyContent {
+  GenericAssignment |
+  Identifier // Handles the key signature like "C", "Cmaj", "Amin", etc.
+}
+
 // Matches: name=value or name = value (for properties other than clef/shift/stem)
 GenericAssignment {
   Identifier equalsWithSpaces AttributeValue
 }
 
 
-// === 2. Generic Info Line ===
+// === 4. Generic Info Line ===
 // Example: T: My Song
 InfoLine {
   InfoKey
@@ -116,11 +132,12 @@ DirectiveLine {
   
   DirectiveKeyword { "%%" ![ \t%\n]+ }
   
-  // Explicit V: key to separate it from generic infos
-  VoiceKey { "V:" } 
+  // Explicit V: and K: keys to separate them from generic infos
+  VoiceKey { "V:" }
+  KeyKey { "K:" }
   
-// Generic Info key (T:, K:, etc), but NOT V:
-InfoKey { ![V|\n] ":" }
+// Generic Info key (T:, M:, etc), but NOT V: or K:
+InfoKey { ![VK|\n] ":" }
 
   Space { $[\t ]+ }
   
@@ -145,7 +162,7 @@ InfoKey { ![V|\n] ":" }
   Other { ![\n]+ }
   
   // Precedence: 
-  // 1. Look for V: first
+  // 1. Look for V: and K: first
   // 2. Look for specific Valid tokens before generic Identifiers
   // 3. equals before Space to match = with surrounding spaces
   @precedence { 
@@ -153,7 +170,8 @@ InfoKey { ![V|\n] ":" }
     CommentedDirective,
     MidiKeyword,
     DirectiveKeyword, 
-    VoiceKey, 
+    VoiceKey,
+    KeyKey,
     InfoKey, 
     MidiNumber,
     Space,
