@@ -378,8 +378,10 @@ function generateStyleTags() {
     
     // COMP field elements
     CompAttribute: t.meta,                  // MusicNotes, Bar attributes - special color (cyan/meta)
-    MusicNoteComponent: t.atom,             // A, B, C, D, E, F, G - special color (red/atom)
-    BarComponent: t.punctuation,            // |, :, [, ] - special color (punctuation)
+    MusicNoteComponent: t.content,             // A, B, C, D, E, F, G - special color (red/atom)
+    BarComponent: t.comment,            // |, :, [, ] - special color (punctuation)
+    Slash: t.namespace,    // Orange/White (Duration fraction)
+
     
     // Values and identifiers  
     MidiNumber: t.number,                   // MIDI numbers - orange

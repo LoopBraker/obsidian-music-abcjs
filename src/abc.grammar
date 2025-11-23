@@ -86,6 +86,8 @@ CompLine {
 CompContent {
   BarComponent |
   MusicNoteComponent |
+  MidiNumber |   
+  Slash |       
   CompAttribute |
   Identifier 
 }
@@ -124,14 +126,24 @@ DirectiveLine {
   // -- COMP Context --
   
   // Bar components (brackets, pipes, colons)
-  BarComponent { "|" | ":" | "[" | "]" }
+  BarComponent { "|" | ":" | "[" | "]" | "n" | "o" | "X" | "x" | "Z" | "z" }
   
   // FIX: Music notes no longer need negative lookahead (![:]).
   // Because InfoKey is handled externally at line-start, 
   // "A" here will safely match "A" anywhere else (inside COMP), 
   // regardless of what comes next.
-  MusicNoteComponent { ("A" | "B" | "C" | "D" | "E" | "F" | "G" | "a" | "b" | "c" | "d" | "e" | "f" | "g") }
-  
+    MusicNoteComponent {
+    // Accidental: ^, ^^, _, __, =
+    ( "^" "^"? | "_" "_"? | "=" )?
+    (
+      // Pitch: A-G, a-g + Octaves: ' or ,
+      ( $[A-Ga-g] ( "'" | "," )* )
+      |
+      // Rests: z, Z, x, X, y
+      $[zZxXy]
+    )
+  }
+  Slash { "/" }
   CompAttribute { "MusicNotes" | "Bar" }
   
   // Note: InfoKey is REMOVED from here. It is now external.
@@ -164,6 +176,7 @@ DirectiveLine {
     CompKey,
     BarComponent,
     MusicNoteComponent,
+    Slash,
     CompAttribute,
     // InfoKey removed (External tokens have implicit priority)
     MidiNumber,
