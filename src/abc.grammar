@@ -119,7 +119,7 @@ DirectiveLine {
   // 4. SingleChar (1 char fallback for H, I, J, k...)
   SingleChar { @asciiLetter }
 
-  Slash { "/" }
+  Slash { "/" | "-"}
   CompAttribute { "MusicNotes" | "Bar" }
   
   Space { $[\t ]+ }
