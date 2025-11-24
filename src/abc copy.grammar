@@ -1,41 +1,17 @@
-@top Program { 
-  // 1. Read standard lines (V:, K:, T:, %%MIDI) top to bottom
-  (HeaderLine newline)* 
-  
-  // 2. If we hit COMP:, switch to Block mode until the end
-  CompBlock? 
-}
+@top Program { (line newline)* line? }
 
 @external tokens lineStartTokens from "./tokens" { InfoKey }
 
-// Anything that ISN'T the COMP block
-HeaderLine { 
+line { 
   CommentedDirective | 
   MidiLine |    
   DirectiveLine | 
   VoiceLine |   
   KeyLine |     
+  CompLine |    
   InfoLine |    
   Comment | 
   Other 
-}
-
-// === COMP BLOCK (Multiline) ===
-CompBlock {
-  CompKey 
-  // Loop accepts Content, Spaces, Comments, AND Newlines
-  ( CompContent | Space | newline  | Comment )*
-}
-
-CompContent {
-  BarComponent |
-  ComplexNote | 
-  SimpleNote  | 
-  MidiNumber |   
-  Slash |       
-  CompAttribute |
-  Word | 
-  SingleChar
 }
 
 // === MIDI ===
@@ -45,14 +21,14 @@ MidiContent {
   DrumAssignment | GchordAssignment | TransposeAssignment |
   DrumOnKeyword | DrumOffKeyword | DirectiveArgs 
 }
-ProgramAssignment { @specialize<Word, "program"> Space MidiNumber }
-ChordProgAssignment { @specialize<Word, "chordprog"> Space MidiNumber }
-ChannelAssignment { @specialize<Word, "channel"> Space MidiNumber }
-DrumAssignment { @specialize<Word, "drum"> Space MidiNumber }
-GchordAssignment { @specialize<Word, "gchord"> Space DirectiveArgs }
-TransposeAssignment { @specialize<Word, "transpose"> Space MidiNumber }
-DrumOnKeyword { @specialize<Word, "drumon"> }
-DrumOffKeyword { @specialize<Word, "drumoff"> }
+ProgramAssignment { @specialize<Identifier, "program"> Word MidiNumber }
+ChordProgAssignment { @specialize<Identifier, "chordprog"> Space MidiNumber }
+ChannelAssignment { @specialize<Identifier, "channel"> Space MidiNumber }
+DrumAssignment { @specialize<Identifier, "drum"> Space DirectiveArgs MidiNumber}
+GchordAssignment { @specialize<Identifier, "gchord"> Space DirectiveArgs }
+TransposeAssignment { @specialize<Identifier, "transpose"> Word MidiNumber }
+DrumOnKeyword { @specialize<Identifier, "drumon"> Word}
+DrumOffKeyword { @specialize<Identifier, "drumoff"> Word}
 
 // === Voice ===
 VoiceLine { VoiceKey Space? VoiceContent (Space VoiceContent)* InlineComment? }
@@ -62,11 +38,33 @@ VoiceContent { GenericAssignment | textIdentifier }
 KeyLine { KeyKey Space? KeyContent (Space KeyContent)* InlineComment? }
 KeyContent { GenericAssignment | textIdentifier }
 
+// === COMP ===
+CompLine {
+  CompKey Space? CompContent (Space? CompContent)* InlineComment?
+}
+CompContent {
+  BarComponent |
+  ComplexNote | 
+  SimpleNote  | 
+  MidiNumber |   
+  Slash |       
+  CompAttribute |
+  Identifier
+}
 
+// === Generic Info (FIXED) ===
+InfoLine {
+  InfoKey
+  ( Space? InfoVal )*
+  InlineComment?
+}
 
-// === Generic Info ===
-InfoLine { InfoKey ( Space? InfoVal )* InlineComment? }
-InfoVal { Word | SimpleNote | SingleChar | MidiNumber | Slash | BarComponent }
+InfoVal {
+  textIdentifier | 
+  MidiNumber | 
+  Slash | 
+  BarComponent
+}
 
 // === Helpers ===
 GenericAssignment { 
@@ -102,7 +100,6 @@ DirectiveLine {
   
   BarComponent { "|" | ":" | "[" | "]" }
   
-  // 1. Complex Note (Highest Priority)
   ComplexNote {
     ( ("^" "^"? | "_" "_"? | "=") $[A-Ga-g] ("'" | ",")* ) | 
     ( $[A-Ga-g] ("'" | ",")+ ) 
@@ -113,7 +110,6 @@ DirectiveLine {
   // Because it is longer than SimpleNote, it wins for words.
   Word { (@asciiLetter | "+" | "-" | @digit) (@asciiLetter | "+" | "-" | @digit)+ }
 
-  // 3. SimpleNote (1 char note)
   SimpleNote { $[A-Ga-gzZxXy] }
 
   // 4. SingleChar (1 char fallback for H, I, J, k...)
@@ -124,7 +120,9 @@ DirectiveLine {
   
   Space { $[\t ]+ }
   equalsWithSpaces { ($[\t ]+ "=" $[\t ]*) | ("=" $[\t ]*) }
-  MidiNumber { ("+" | "-")? @digit+ }
+  MidiNumber { "-"? @digit+ }
+  
+  Identifier { (@asciiLetter | "+" | "-" | @digit)+ }
   
   DirectiveArgs { ![\s%\n=] ![%\n]* }
   CommentedDirective { "%%%" ![\n]* }
@@ -149,6 +147,7 @@ DirectiveLine {
     CompAttribute,
     MidiNumber,
     Space,
+    Identifier,
     DirectiveArgs,
     Comment, 
     Other 

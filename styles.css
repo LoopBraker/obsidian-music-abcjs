@@ -313,7 +313,7 @@
 }
 
 .abc-codemirror-container .cm-activeLine {
-  background-color: none;
+  background-color: none !important;
 }
 
 .abc-codemirror-container .cm-selectionBackground {
