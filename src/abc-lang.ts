@@ -32,6 +32,7 @@ import {
   isValidCompComponent,
   getAttributeForComponent
 } from "./abc-comp"
+import { Sequence } from "./abc.grammar.terms.js"
 
 
 // Add MIDI to directives set (special handling)
@@ -392,58 +393,76 @@ function generateStyleTags() {
     VoiceKey: t.keyword,                    // V: - purple
     KeyKey: t.keyword,                      // K: - purple
     
-     // [Notes]
-   // 1. Complex notes (with accidentals/octaves) are ALWAYS notes
-    ComplexNote: t.content, 
-    // 2. Simple notes (A, B, C) to prevent bleeding
-    SimpleNote: t.content, 
-    "ScoreLine/SimpleNote": t.content,
-
-    // 3. Attributes (MusicNotes, Bar)
-    "ScoreLine/ScoreAttribute": t.meta,
+     // [Score]
+    ComplexNote: t.content, // accidentals/octaves
+    SimpleNote: t.content, // Simple notes (A, B, C) 
     Annotation: t.string,
-    Duration: t.number,
-    
-    // 3. SCOPED STYLING: Inside CompLine, SimpleNote becomes a Note
-    "ScoreLine/Word": t.content, // Red 
-    "ScoreLine/CompContent/SingleChar": t.content, // Red 
-    "ScoreContent/Word": t.content,
-    "ScoreContent/Slash": t.number,
-    "ScoreLine/ScoreContent/Word": t.content,
+    Duration: t.number,  // Elements related to time modifications
+    Ornament: t.keyword, 
 
-    
-    "VoiceLine/GenericAssignment": t.string, 
+    // [Defaults]
+    MidiNumber: t.number,
+    Word: t.content,         
+    SingleChar: t.content,
+    AttributeValue: t.content,
+    DirectiveArgs: t.content,
+    BarComponent: t.comment,
+    Slash: t.number,
+   // Comments
+    Comment: t.lineComment,
+    InlineComment: t.lineComment,
+    CommentedDirective: t.lineComment,
 
     // Values and identifiers  
     InvalidValue: t.invalid,                // Invalid values - red
     
     // InfoLines
-    "InfoLine/InfoVal/textIdentifier/Word": t.string,
-    "InfoLine/InfoVal/SimpleNote": t.string,
-    "InfoLine/InfoVal/MidiNumber": t.string,
-    "InfoLine/InfoVal/Slash": t.string,
-    "InfoLine/InfoVal/Word": t.string,
-    "InfoLine/InfoVal/SingleChar": t.string,
-    "InfoLine/InfoVal/BarComponent": t.string,
-    "InfoLine/InfoVal/Annotation": t.string,
-    "InfoLine/InfoVal/Duration": t.string,
+    "InfoVal/Rest": t.string,
+    "InfoVal/Spacing": t.string,
+    "InfoVal/SimpleNote": t.string,
+    "InfoVal/MidiNumber": t.string,
+    "InfoVal/Slash": t.string,
+    "InfoVal/Word": t.string,
+    "InfoVal/SingleChar": t.string,
+    "InfoVal/BarComponent": t.string,
+    "InfoVal/Annotation": t.string,
+    "InfoVal/Duration": t.string,
+    "InfoVal/ComplexNote": t.string,
+    "InfoVal/Ornament": t.string,
 
-    // Voice attributes - green 
-    // "GenericAssignment/textIdentifier": t.comment,
-    // "GenericAssignment/Identifier": t.comment,
-    // "GenericAssignment/SimpleNote": t.propertyName, 
+    // === VOICE LINE ===
+    // 
+    "VoiceLine/GenericAssignment": t.string, 
+
+    "VoiceLine/VoiceName/Word": t.comment, 
+    "VoiceLine/VoiceName/MidiNumber": t.comment,
+    "VoiceLine/VoiceName/SimpleNote": t.comment,
+    "VoiceLine/VoiceName/textIdentifier": t.comment,
+    "VoiceLine/VoiceName/SingleChar": t.comment,
+    "VoiceLine/VoiceName/Slash": t.comment,
+    "VoiceLine/VoiceName/BarComponent": t.comment,
+    "VoiceLine/VoiceName/Annotation": t.comment,
+    "VoiceLine/VoiceName/Duration": t.comment,
+    "VoiceLine/VoiceName/ComplexNote": t.comment,
+    "VoiceLine/VoiceName/Ornament": t.comment,
+
     
     // [MIDI]
     ProgramAssignment: t.propertyName,
     ChordProgAssignment: t.propertyName,
     ChannelAssignment: t.propertyName,
     DrumAssignment: t.propertyName,
+    "DrumAssignment/Sequence/Word": t.number,       // e.g. distinct color
+    "DrumAssignment/Sequence/SimpleNote": t.number,
+    "DrumAssignment/Sequence/SingleChar": t.number,
     GchordAssignment: t.propertyName,
     TransposeAssignment: t.propertyName,
     DrumOnKeyword: t.string, 
     DrumOffKeyword: t.string,
     GchordOnKeyword: t.string,
     GchordOffKeyword: t.string,
+
+
     
     // [Assignments]
     // KEYS:  (PropertyName)
@@ -451,31 +470,24 @@ function generateStyleTags() {
     "AssignmentKey/SimpleNote": t.propertyName, // m, a, b
     "AssignmentKey/SingleChar": t.propertyName, // n, k, i
     "AssignmentKey/Annotation": t.propertyName, // lyrics, text
-    "AssignmentKey/Duration": t.propertyName,   // length
+    "AssignmentKey/Duration": t.propertyName,   // length"
+
+    "KeyLine/KeyTonic/SimpleNote": t.string, // C, D, E
+    "KeyLine/KeyTonic/Sharp": t.string, // #
 
 
     // VALUES:
     "AssignmentValue/Word": t.string,           // treble, bass, CD
     "AssignmentValue/SimpleNote": t.string,     // C (key signature)
     "AssignmentValue/SingleChar": t.string,     // H
-    "AssignmentValue/MidiNumber": t.number,     // 120
+    "AssignmentValue/MidiNumber": t.string,     // 120
     "AssignmentValue/Slash": t.string,          // 4 (length)
     "AssignmentValue/Annotation": t.string,     // some text
-    "AssignmentValue/Duration": t.number,       // 1/4, 1/8
+    "AssignmentValue/Duration": t.string,       // 1/4, 1/8
+    "AssignmentValue/ComplexNote": t.string, // C#, Bb
+    "AssignmentValue/Ornament": t.string, // ~, u, v
 
-    // [Defaults]
-    MidiNumber: t.number,
-    Word: t.string,         
-    SingleChar: t.string,
-    AttributeValue: t.string,
-    DirectiveArgs: t.content,
-    ScoreAttribute: t.meta,
-    BarComponent: t.comment,
-    Slash: t.number,
-   // Comments
-    Comment: t.lineComment,
-    InlineComment: t.lineComment,
-    CommentedDirective: t.lineComment,
+
   }
   
   return tags

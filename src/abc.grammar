@@ -23,7 +23,7 @@ line {
 }
 
 // === SCORE (MUSIC) ===
-// A line of music. It doesn't need a starting keyword anymore.
+// A line of music. It doesn't need a starting keyword.
 ScoreLine {
   ( ScoreContent | Space )+ 
   InlineComment?
@@ -32,12 +32,14 @@ ScoreLine {
 ScoreContent {
   BarComponent |
   Annotation |
+  Ornament |
   Duration |
   ComplexNote | 
   SimpleNote  | 
+  Rest |
+  Spacing |
   MidiNumber |   
   Slash |       
-  ScoreAttribute |
   Word | 
   SingleChar
 }
@@ -52,7 +54,8 @@ MidiContent {
 ProgramAssignment { @specialize<Word, "program"> Space MidiNumber }
 ChordProgAssignment { @specialize<Word, "chordprog"> Space MidiNumber }
 ChannelAssignment { @specialize<Word, "channel"> Space MidiNumber }
-DrumAssignment { @specialize<Word, "drum"> Space MidiNumber }
+DrumAssignment { @specialize<Word, "drum"> Space Sequence Space MidiNumber }
+Sequence {( textIdentifier | MidiNumber )* }
 GchordAssignment { @specialize<Word, "gchord"> Space DirectiveArgs }
 TransposeAssignment { @specialize<Word, "transpose"> Space MidiNumber }
 DrumOnKeyword { @specialize<Word, "drumon"> }
@@ -61,16 +64,37 @@ GchordOnKeyword { @specialize<Word, "gchordon"> }
 GchordOffKeyword { @specialize<Word, "gchordoff"> }
 
 // === Voice ===
-VoiceLine { VoiceKey Space? VoiceContent (Space VoiceContent)* InlineComment? }
-VoiceContent { GenericAssignment | textIdentifier }
+VoiceLine { VoiceKey Space? VoiceName (Space VoiceProperty)* InlineComment? }
+
+VoiceName { 
+  // 1. Allow text followed immediately by a number (e.g. "V1", "Violin2")
+    (Word | SimpleNote | SingleChar | ComplexNote) (SimpleNote | ComplexNote | Word)? (Duration | MidiNumber)? |
+  
+  // 2. Fallbacks for other single types
+  MidiNumber | Slash | BarComponent | Annotation | Duration
+}
+VoiceProperty { GenericAssignment | textIdentifier}
 
 // === Key ===
-KeyLine { KeyKey Space? KeyContent (Space KeyContent)* InlineComment? }
-KeyContent { GenericAssignment | textIdentifier }
+KeyLine { KeyKey Space? KeyTonic (Space KeyProperty)* InlineComment? }
+
+KeyTonic {
+  // Option 1: "none" or "HP"
+  KeyNone |
+  // Option 2: Standard Key
+  // Matches C, F#, Bb, Am (if written as word)
+  SimpleNote (Sharp)?
+}
+
+KeyNone {
+  @specialize<Word, "none" | "HP">
+}
+
+KeyProperty { GenericAssignment | textIdentifier }
 
 // === Generic Info ===
 InfoLine { InfoKey ( Space? InfoVal )* InlineComment? }
-InfoVal { Word | SimpleNote | SingleChar | MidiNumber | Slash | BarComponent | Annotation | Duration}
+InfoVal { textIdentifier | MidiNumber | Slash | BarComponent}
 
 // === Helpers ===
 GenericAssignment { 
@@ -86,7 +110,7 @@ AssignmentValue {
 }
 
 textIdentifier { 
-  Word | SimpleNote | SingleChar | Annotation | Duration
+  Word | SimpleNote | Rest | Spacing | SingleChar | Annotation | Duration | ComplexNote | Ornament 
 }
 
 // === Directives ===
@@ -96,32 +120,24 @@ DirectiveLine {
 
 @tokens {
   newline { "\n" }
+  // Directives and Keywords
   MidiKeyword { "%%MIDI" }
   DirectiveKeyword { "%%" ![ \t%\n]+ }
-  
   VoiceKey { "V:" }
   KeyKey { "K:" }
-  // CompKey Removed
-  
+
+  Sharp { "#" }
+
   BarComponent { "|" | ":" | "[" | "]" }
   
   // Matches a double quote, followed by anything that ISN'T a newline or quote, ending with a quote.
   Annotation { '"' ![\n"]* '"' }
 
-  // Matches dots for note duration ("<" and ">")
-  Duration { "<" | 
-                ">" | 
-                "(" | 
-                ")" | 
-                ".(" | 
-                "." | 
-                ":" |
-                "{" |
-                "}" |
-                "~" |
-                "(" $[\t ]* @digit+  |
-                @digit+
-              }
+  // Duration
+  Duration { "<" | ">" | "-" | "(" | ")" | ".(" |  ":" | "{" | "}" | "(" $[\t ]* @digit+  | 
+            ( @digit + ) | ( "/" + @digit* ) | ( @digit+ "/" @digit* )}
+  
+  Ornament{ "~" | "." | "u" | "v" }
 
   // Complex Note
   ComplexNote {
@@ -130,19 +146,28 @@ DirectiveLine {
   }
 
   // Word (2+ chars)
-  Word { (@asciiLetter | "+" | "-" | @digit) (@asciiLetter | "+" | "-" | @digit)+ }
+  //Word { (@asciiLetter | "+" | "-" | @digit) (@asciiLetter | "+" | "-" | @digit)+ }
+
+   Word { 
+    @asciiLetter @asciiLetter (@asciiLetter | "+" | "-" | "_" | @digit)* 
+  }
 
   // SimpleNote (1 char note)
-  SimpleNote { $[A-Ga-gzZxXy] }
+  SimpleNote { $[A-Ga-g] }
+
+  // Rests and Spacing: zZxy
+  Rest { $[zZ] }
+  Spacing { $[xXy] }
 
   // SingleChar (1 char fallback)
   SingleChar { @asciiLetter }
 
-  Slash { "/" | "-"}
-  ScoreAttribute { "MusicNotes" | "Bar" }
+  Slash { "/"}
   
   Space { $[\t ]+ }
+
   equalsWithSpaces { ($[\t ]+ "=" $[\t ]*) | ("=" $[\t ]*) }
+
   MidiNumber { ("+" | "-")? @digit+ }
   
   DirectiveArgs { ![\s%\n=] ![%\n]* }
@@ -160,13 +185,16 @@ DirectiveLine {
     KeyKey,
     BarComponent,
     Annotation,
+    Ornament,
     Duration,
     ComplexNote,
     Word,
     SimpleNote,
+    Rest,
+    Spacing,
     SingleChar,
     Slash,
-    ScoreAttribute,
+    Sharp,
     MidiNumber,
     Space,
     DirectiveArgs,
