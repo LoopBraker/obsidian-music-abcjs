@@ -1,39 +1,43 @@
-@top Program { 
-  // 1. Read standard lines (V:, K:, T:, %%MIDI) top to bottom
-  (HeaderLine newline)* 
-  
-  // 2. If we hit COMP:, switch to Block mode until the end
-  CompBlock? 
-}
+@top Program { (line newline)* line? }
 
 @external tokens lineStartTokens from "./tokens" { InfoKey }
 
-// Anything that ISN'T the COMP block
-HeaderLine { 
+line { 
+  // 1. Specific Headers (Priority)
   CommentedDirective | 
   MidiLine |    
   DirectiveLine | 
   VoiceLine |   
   KeyLine |     
   InfoLine |    
+  
+  // 2. Comments
   Comment | 
+  
+  // 3. Score (Music) - The Default Fallback
+  // If it's not a header or comment, it's music.
+  ScoreLine |
+  
+  // 4. Garbage collector (for safety)
   Other 
 }
 
-// === COMP BLOCK (Multiline) ===
-CompBlock {
-  CompKey 
-  // Loop accepts Content, Spaces, Comments, AND Newlines
-  ( CompContent | Space | newline  | Comment )*
+// === SCORE (MUSIC) ===
+// A line of music. It doesn't need a starting keyword anymore.
+ScoreLine {
+  ( ScoreContent | Space )+ 
+  InlineComment?
 }
 
-CompContent {
+ScoreContent {
   BarComponent |
+  Annotation |
+  Duration |
   ComplexNote | 
   SimpleNote  | 
   MidiNumber |   
   Slash |       
-  CompAttribute |
+  ScoreAttribute |
   Word | 
   SingleChar
 }
@@ -43,7 +47,7 @@ MidiLine { MidiKeyword Space MidiContent (Space MidiContent)* InlineComment? }
 MidiContent {
   ProgramAssignment | ChordProgAssignment | ChannelAssignment |
   DrumAssignment | GchordAssignment | TransposeAssignment |
-  DrumOnKeyword | DrumOffKeyword | DirectiveArgs 
+  DrumOnKeyword | DrumOffKeyword | DirectiveArgs | GchordOnKeyword | GchordOffKeyword
 }
 ProgramAssignment { @specialize<Word, "program"> Space MidiNumber }
 ChordProgAssignment { @specialize<Word, "chordprog"> Space MidiNumber }
@@ -53,6 +57,8 @@ GchordAssignment { @specialize<Word, "gchord"> Space DirectiveArgs }
 TransposeAssignment { @specialize<Word, "transpose"> Space MidiNumber }
 DrumOnKeyword { @specialize<Word, "drumon"> }
 DrumOffKeyword { @specialize<Word, "drumoff"> }
+GchordOnKeyword { @specialize<Word, "gchordon"> }
+GchordOffKeyword { @specialize<Word, "gchordoff"> }
 
 // === Voice ===
 VoiceLine { VoiceKey Space? VoiceContent (Space VoiceContent)* InlineComment? }
@@ -62,11 +68,9 @@ VoiceContent { GenericAssignment | textIdentifier }
 KeyLine { KeyKey Space? KeyContent (Space KeyContent)* InlineComment? }
 KeyContent { GenericAssignment | textIdentifier }
 
-
-
 // === Generic Info ===
 InfoLine { InfoKey ( Space? InfoVal )* InlineComment? }
-InfoVal { Word | SimpleNote | SingleChar | MidiNumber | Slash | BarComponent }
+InfoVal { Word | SimpleNote | SingleChar | MidiNumber | Slash | BarComponent | Annotation | Duration}
 
 // === Helpers ===
 GenericAssignment { 
@@ -81,9 +85,8 @@ AssignmentValue {
   textIdentifier | MidiNumber 
 }
 
-// Helper: Matches any text-like element
 textIdentifier { 
-  Word | SimpleNote | SingleChar 
+  Word | SimpleNote | SingleChar | Annotation | Duration
 }
 
 // === Directives ===
@@ -98,29 +101,45 @@ DirectiveLine {
   
   VoiceKey { "V:" }
   KeyKey { "K:" }
-  CompKey { "COMP:" }
+  // CompKey Removed
   
   BarComponent { "|" | ":" | "[" | "]" }
   
-  // 1. Complex Note (Highest Priority)
+  // Matches a double quote, followed by anything that ISN'T a newline or quote, ending with a quote.
+  Annotation { '"' ![\n"]* '"' }
+
+  // Matches dots for note duration ("<" and ">")
+  Duration { "<" | 
+                ">" | 
+                "(" | 
+                ")" | 
+                ".(" | 
+                "." | 
+                ":" |
+                "{" |
+                "}" |
+                "~" |
+                "(" $[\t ]* @digit+  |
+                @digit+
+              }
+
+  // Complex Note
   ComplexNote {
     ( ("^" "^"? | "_" "_"? | "=") $[A-Ga-g] ("'" | ",")* ) | 
     ( $[A-Ga-g] ("'" | ",")+ ) 
   }
 
-  // 2. Word (Strictly 2+ chars). 
-  // Captures "clef", "shift", "treble", "CD".
-  // Because it is longer than SimpleNote, it wins for words.
+  // Word (2+ chars)
   Word { (@asciiLetter | "+" | "-" | @digit) (@asciiLetter | "+" | "-" | @digit)+ }
 
-  // 3. SimpleNote (1 char note)
+  // SimpleNote (1 char note)
   SimpleNote { $[A-Ga-gzZxXy] }
 
-  // 4. SingleChar (1 char fallback for H, I, J, k...)
+  // SingleChar (1 char fallback)
   SingleChar { @asciiLetter }
 
   Slash { "/" | "-"}
-  CompAttribute { "MusicNotes" | "Bar" }
+  ScoreAttribute { "MusicNotes" | "Bar" }
   
   Space { $[\t ]+ }
   equalsWithSpaces { ($[\t ]+ "=" $[\t ]*) | ("=" $[\t ]*) }
@@ -139,14 +158,15 @@ DirectiveLine {
     DirectiveKeyword, 
     VoiceKey,
     KeyKey,
-    CompKey,
     BarComponent,
+    Annotation,
+    Duration,
     ComplexNote,
     Word,
     SimpleNote,
     SingleChar,
     Slash,
-    CompAttribute,
+    ScoreAttribute,
     MidiNumber,
     Space,
     DirectiveArgs,

@@ -351,7 +351,7 @@ export class PlaybackElement extends MarkdownRenderChild {
     
     const dragLabel = dragContainer.createEl('label');
     dragLabel.setAttribute('for', this.draggingCheckbox.id);
-    dragLabel.setText('Enable dragging');
+    dragLabel.setText('Dragging');
     
     // Loop controls container (separate box)
     const loopContainer = bottomControlsWrapper.createDiv({ cls: 'abcjs-bottom-controls' });
