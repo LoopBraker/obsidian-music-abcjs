@@ -508,9 +508,9 @@ export const abcLanguage = LRLanguage.define({
   }
 })
 
-export function abc() {
+export function abc(extraCompletions: any[] = []) {
   return new LanguageSupport(abcLanguage, [
-    autocompletion({ override: [abcCompletions] }),
+    autocompletion({ override: [abcCompletions, ...extraCompletions] }),
     abcLinter
   ])
 }
