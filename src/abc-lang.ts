@@ -25,14 +25,6 @@ import {
   keyAttributeDefinitions,
   getKeyAttributeConfig
 } from "./abc-key"
-import {
-  compAttributes,
-  allCompComponents,
-  validCompAttributes,
-  isValidCompComponent,
-  getAttributeForComponent
-} from "./abc-comp"
-import { Sequence } from "./abc.grammar.terms.js"
 
 
 // Add MIDI to directives set (special handling)
@@ -147,28 +139,6 @@ function abcCompletions(context: CompletionContext) {
         type: "property",
         info: attr.description
       }))
-    }
-  }
-  
-  // COMP: line completion
-  const isInCompLine = /^COMP:\s*/.test(lineText)
-  if (isInCompLine && word.text.match(/^\w*$/)) {
-    // Suggest both attributes and components
-    const attributeOptions = compAttributes.map(attr => ({
-      label: attr.attribute,
-      type: "property",
-      info: attr.description
-    }))
-    
-    const componentOptions = Array.from(allCompComponents.entries()).map(([comp, def]) => ({
-      label: comp,
-      type: "constant",  // Use constant type for components
-      info: def.description
-    }))
-    
-    return {
-      from: word.from,
-      options: [...attributeOptions, ...componentOptions]
     }
   }
   
@@ -452,10 +422,11 @@ function generateStyleTags() {
     ProgramAssignment: t.propertyName,
     ChordProgAssignment: t.propertyName,
     ChannelAssignment: t.propertyName,
-    DrumAssignment: t.propertyName,
-    "DrumAssignment/Sequence/Word": t.number,       // e.g. distinct color
-    "DrumAssignment/Sequence/SimpleNote": t.number,
-    "DrumAssignment/Sequence/SingleChar": t.number,
+    // DrumAssignment: t.propertyName,
+    "DrumAssignment/Word": t.propertyName,      
+    "DrumAssignment/DrumSequence/DrumStrike": t.number,
+    "DrumAssignment/DrumSequence/Rest": t.comment,
+    "DrumAssignment/DrumSequence/Digit": t.number,     
     GchordAssignment: t.propertyName,
     TransposeAssignment: t.propertyName,
     DrumOnKeyword: t.string, 
@@ -473,9 +444,9 @@ function generateStyleTags() {
     "AssignmentKey/Annotation": t.propertyName, // lyrics, text
     "AssignmentKey/Duration": t.propertyName,   // length"
 
-    "KeyLine/KeyTonic/SimpleNoteCapital": t.string, // C, D, E
-    "KeyLine/KeyTonic/Sharp": t.string, // #
-    "KeyLine/KeyTonic/KeyMode": t.string, // #
+    "KeyTonic/SimpleNoteCapital": t.string, // C, D, E
+    "KeyTonic/Sharp": t.string, // #
+    KeyMode: t.string, // #
 
 
     // VALUES:

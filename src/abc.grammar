@@ -55,8 +55,12 @@ MidiContent {
 ProgramAssignment { @specialize<Word, "program"> Space MidiNumber }
 ChordProgAssignment { @specialize<Word, "chordprog"> Space MidiNumber }
 ChannelAssignment { @specialize<Word, "channel"> Space MidiNumber }
-DrumAssignment { @specialize<Word, "drum"> Space Sequence Space MidiNumber }
-Sequence {( textIdentifier | MidiNumber )* }
+// -------------------------------------------------------
+// %%MIDI drum sequence [drum programs] [drum velocities]
+DrumAssignment { Word Space DrumSequence Space MidiNumber Space MidiNumber }
+// The sequence may contain 'd' for a drum strike or 'z' for a rest. The standard note length of a single note d is not set by the L: command. Instead it is adjusted so that the entire drum sequence fits exactly into one bar.In other words the duration of each note is divided by the total duration of the sequence.This means that, for example, the drum sequence "dd" is equivalent to drum string "d4d4". You cannot currently specify fractions directly (eg. C3/2) as done in the body of the music, but it is still possible to express complex rhythms. For example, to indicate a rhythm such as (3ddd d/d/d/d, you would write the string "d4d4d4d3d3d3d3".
+DrumSequence { (DrumStrike | Rest | Digit)* }
+
 GchordAssignment { @specialize<Word, "gchord"> Space DirectiveArgs }
 TransposeAssignment { @specialize<Word, "transpose"> Space MidiNumber }
 DrumOnKeyword { @specialize<Word, "drumon"> }
@@ -84,7 +88,7 @@ KeyTonic {
   KeyNone |
   // Option 2: Standard Key
   // Matches C, F#, Bb, Am (if written as word)
-  SimpleNoteCapital Space?  (Sharp)? Space? KeyMode? Space
+  SimpleNoteCapital Space? (Sharp)? Space? KeyMode? Space
 }
 
 KeyNone {
@@ -92,7 +96,7 @@ KeyNone {
 }
 
 KeyMode {
-   @specialize<Word, "m" | "min" | "minor" | 
+   @specialize<Word, "min" | "minor" | 
                      "maj" | "major" | 
                      "dor" | "dorian" | 
                      "phr" | "phrygian" | 
@@ -100,7 +104,8 @@ KeyMode {
                      "mix" | "mixolydian" | 
                      "loc" | "locrian" | 
                      "aeo" | "aeolian" | 
-                     "ion" | "ionian"> 
+                     "ion" | "ionian"> |
+    @specialize<SingleChar, "m">
 }
 
 
@@ -141,7 +146,7 @@ DirectiveLine {
   KeyKey { "K:" }
 
   Sharp { "#" }
-
+  Digit { @digit+ }
   BarComponent { "|" | ":" | "[" | "]" }
   
   // Matches a double quote, followed by anything that ISN'T a newline or quote, ending with a quote.
@@ -183,8 +188,10 @@ DirectiveLine {
 
   equalsWithSpaces { ($[\t ]+ "=" $[\t ]*) | ("=" $[\t ]*) }
 
+  //MIDI
   MidiNumber { ("+" | "-")? @digit+ }
-  
+  DrumStrike { "d" }
+
   DirectiveArgs { ![\s%\n=] ![%\n]* }
   CommentedDirective { "%%%" ![\n]* }
   InlineComment { "%" ![\n]* }
