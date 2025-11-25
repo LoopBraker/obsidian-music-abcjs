@@ -1,18 +1,18 @@
-import {parser} from "./abc.grammar.js"
-import {LRLanguage, LanguageSupport, syntaxTree} from "@codemirror/language"
-import {styleTags, tags as t} from "@lezer/highlight"
-import {autocompletion, CompletionContext} from "@codemirror/autocomplete"
-import {linter, Diagnostic} from "@codemirror/lint"
+import { parser } from "./abc.grammar.js"
+import { LRLanguage, LanguageSupport, syntaxTree } from "@codemirror/language"
+import { styleTags, tags as t } from "@lezer/highlight"
+import { autocompletion, CompletionContext } from "@codemirror/autocomplete"
+import { linter, Diagnostic } from "@codemirror/lint"
 
 // Import modular ABC definitions
-import { validInfoKeys, infoFieldDefinitions } from "./abc-infofields"
+import { validInfoKeys, infoFieldDefinitions, commonTimeSignatures } from "./abc-infofields"
 import { validDirectives, directiveDefinitions } from "./abc-directives"
-import { 
-  midiAttributes, 
+import {
+  midiAttributes,
   midiAttributeDefinitions,
-  validateMidiAttributeValue 
+  validateMidiAttributeValue
 } from "./abc-midi"
-import { 
+import {
   voiceAttributes,
   voiceAttributeDefinitions,
   validClefs,
@@ -51,7 +51,7 @@ const wordMatchRegex = new RegExp(`%%\\w*|[A-Za-z]:?|${voiceAttrPattern}|${keyAt
 function abcCompletions(context: CompletionContext) {
   // 1. Attempt to match a word before cursor
   let word = context.matchBefore(wordMatchRegex)
-  
+
   const line = context.state.doc.lineAt(context.pos)
   const lineText = context.state.doc.sliceString(line.from, context.pos)
 
@@ -62,8 +62,13 @@ function abcCompletions(context: CompletionContext) {
     word = { from: context.pos, to: context.pos, text: "" }
   }
 
+  // 3. FIX: Handle the case where we are strictly after "M:" or "M: "
+  if (!word && /^M:\s*$/.test(lineText)) {
+    word = { from: context.pos, to: context.pos, text: "" }
+  }
+
   if (!word) return null
-  
+
   // ----------------------------------------------------------------
   // EXCLUSIVE GUARD: MIDI LINE
   // If the line starts with %%MIDI, we ONLY check for MIDI attributes.
@@ -73,7 +78,7 @@ function abcCompletions(context: CompletionContext) {
     // Check text BEFORE current word to see if we're in the attribute slot
     const textBeforeWord = context.state.doc.sliceString(line.from, word.from)
     const isMidiAttributeSlot = /^%%MIDI\s*$/.test(textBeforeWord)
-    
+
     // Show suggestions if: right after %%MIDI with space, OR currently typing a word
     if (isMidiAttributeSlot || (word.text.match(/^\w*$/) && /^%%MIDI\s+/.test(lineText))) {
       return {
@@ -88,37 +93,56 @@ function abcCompletions(context: CompletionContext) {
     // Explicitly return NULL to prevent falling through to generic directives
     return null
   }
-  
+
+  // ----------------------------------------------------------------
+  // EXCLUSIVE GUARD: METER LINE (M:)
+  // ----------------------------------------------------------------
+  if (/^M:\s*/.test(lineText)) {
+    // Allow matching slashes and pipes for time signatures (e.g. 4/4, C|)
+    // We try to match a fuller word than the default regex
+    const timeSigMatch = context.matchBefore(/[\w\/|]+/)
+    const effectiveWord = timeSigMatch || word
+
+    return {
+      from: effectiveWord.from,
+      options: commonTimeSignatures.map(sig => ({
+        label: sig,
+        type: "constant",
+        info: "Time signature"
+      }))
+    }
+  }
+
   const isInComment = /^%(?!%)/.test(lineText)  // Line starts with % but not %%
   const isInVoiceLine = /^V:\s*\S/.test(lineText)  // V: or V:X (with or without space)
   const isInKeyLine = /^K:\s*\S/.test(lineText)    // K: or K:C (with or without space)
   const isInAnyInfoLine = /^[A-Za-z]:\s+/.test(lineText)
   const lineStartsWithDirective = /^%%/.test(lineText)  // Line starts with directive
-  
+
   // Don't suggest anything in comments
   if (isInComment) return null
-  
+
   // Complete directives starting with %% (only if not already in an info line)
   // Match if currently typing a directive (%%word) or just typed %%
   if (word.text.startsWith("%%") && !isInAnyInfoLine) {
     // Extract what's been typed after %%
     const partialDirective = word.text.slice(2).toLowerCase()
-    
+
     // Filter directives that match what's been typed so far
-    const matchingDirectives = Array.from(allDirectives).filter(d => 
+    const matchingDirectives = Array.from(allDirectives).filter(d =>
       d.toLowerCase().startsWith(partialDirective)
     )
-    
+
     return {
       from: word.from,
-      options: matchingDirectives.map(d => ({ 
-        label: `%%${d}`, 
+      options: matchingDirectives.map(d => ({
+        label: `%%${d}`,
         type: "keyword",
         info: directiveDefinitions[d] || (d === "MIDI" ? "MIDI playback instructions" : "ABC directive")
       }))
     }
   }
-  
+
   // If in a V: line, suggest voice attributes instead of info keys
   if (isInVoiceLine && word.text.match(/^\w+$/)) {
     return {
@@ -130,7 +154,7 @@ function abcCompletions(context: CompletionContext) {
       }))
     }
   }
-  
+
   // If in a K: line, suggest key attributes
   if (isInKeyLine && word.text.match(/^\w+$/)) {
     return {
@@ -142,30 +166,30 @@ function abcCompletions(context: CompletionContext) {
       }))
     }
   }
-  
+
   // Complete info keys ONLY at start of line (not if already in an info line or directive line)
   if (word.text.match(/^[A-Za-z]:?$/) && !isInAnyInfoLine && !lineStartsWithDirective) {
     return {
       from: word.from,
-      options: Array.from(validInfoKeys).map(k => ({ 
-        label: `${k}:`, 
+      options: Array.from(validInfoKeys).map(k => ({
+        label: `${k}:`,
         type: "variable",
         info: infoFieldDefinitions[k] || "ABC info field"
       }))
     }
   }
-  
+
   // Complete voice/key attribute values dynamically
   // Check if word matches any attribute with "=" (e.g., "clef=", "stem=", "name=")
   const attrMatch = word.text.match(/^(\w+)=/)
   if (attrMatch && (isInVoiceLine || isInKeyLine)) {
     const attrName = attrMatch[1]
-    
+
     // Look for attribute in voice or key attributes depending on line type
-    const config = isInVoiceLine 
+    const config = isInVoiceLine
       ? voiceAttributes.find(attr => attr.attribute === attrName)
       : keyAttributes.find(attr => attr.attribute === attrName)
-    
+
     if (config && config.validValues) {
       // Generate completions for attributes with predefined valid values
       return {
@@ -178,7 +202,7 @@ function abcCompletions(context: CompletionContext) {
       }
     }
   }
-  
+
   return null
 }
 
@@ -187,13 +211,13 @@ const abcLinter = linter(view => {
   const diagnostics: Diagnostic[] = []
   const tree = syntaxTree(view.state)
   const doc = view.state.doc
-  
+
   tree.cursor().iterate(node => {
     // Check DirectiveKeyword tokens
     if (node.name === "DirectiveKeyword") {
       const text = view.state.doc.sliceString(node.from, node.to)
       const keyword = text.slice(2).trim() // Remove %% and trim
-      
+
       if (!allDirectives.has(keyword)) {
         diagnostics.push({
           from: node.from,
@@ -203,12 +227,12 @@ const abcLinter = linter(view => {
         })
       }
     }
-    
+
     // Check InfoKey tokens
     if (node.name === "InfoKey") {
       const text = view.state.doc.sliceString(node.from, node.to)
       const key = text.slice(0, -1) // Remove :
-      
+
       if (!validInfoKeys.has(key)) {
         diagnostics.push({
           from: node.from,
@@ -218,12 +242,12 @@ const abcLinter = linter(view => {
         })
       }
     }
-    
+
     // Check VoiceKey tokens (V:)
     if (node.name === "VoiceKey") {
       const text = view.state.doc.sliceString(node.from, node.to)
       const key = text.slice(0, -1) // Remove :
-      
+
       if (!validInfoKeys.has(key)) {
         diagnostics.push({
           from: node.from,
@@ -233,12 +257,12 @@ const abcLinter = linter(view => {
         })
       }
     }
-    
+
     // Check KeyKey tokens (K:)
     if (node.name === "KeyKey") {
       const text = view.state.doc.sliceString(node.from, node.to)
       const key = text.slice(0, -1) // Remove :
-      
+
       if (!validInfoKeys.has(key)) {
         diagnostics.push({
           from: node.from,
@@ -248,13 +272,13 @@ const abcLinter = linter(view => {
         })
       }
     }
-    
+
     // Check MidiLine for multiple attributes (only one allowed)
     if (node.name === "MidiLine") {
       let contentCount = 0
       let cursor = node.node.cursor()
       cursor.firstChild() // Enter MidiLine
-      
+
       do {
         if (cursor.node.name === "MidiContent") {
           contentCount++
@@ -269,7 +293,7 @@ const abcLinter = linter(view => {
         }
       } while (cursor.nextSibling())
     }
-    
+
     // Validate MIDI program range (0-127)
     if (node.name === "ProgramAssignment") {
       let numberNode = node.node.lastChild
@@ -285,7 +309,7 @@ const abcLinter = linter(view => {
         }
       }
     }
-    
+
     // Validate MIDI chordprog range (0-127)
     if (node.name === "ChordProgAssignment") {
       let numberNode = node.node.lastChild
@@ -317,7 +341,7 @@ const abcLinter = linter(view => {
         }
       }
     }
-    
+
     // Validate MIDI channel range (1-16)
     if (node.name === "ChannelAssignment") {
       let numberNode = node.node.lastChild
@@ -334,12 +358,12 @@ const abcLinter = linter(view => {
       }
     }
   })
-  
+
   // Check for blank lines (empty lines or lines with only whitespace)
   for (let lineNum = 1; lineNum <= doc.lines; lineNum++) {
     const line = doc.line(lineNum)
     const lineText = doc.sliceString(line.from, line.to)
-    
+
     // Check if line is empty or contains only whitespace
     if (lineText.trim() === "") {
       diagnostics.push({
@@ -350,7 +374,7 @@ const abcLinter = linter(view => {
       })
     }
   }
-  
+
   return diagnostics
 })
 
@@ -364,32 +388,32 @@ function generateStyleTags() {
     VoiceKey: t.keyword,                    // V
     KeyKey: t.keyword,                      // K
     TimeSignatureKey: t.propertyName,        // M
-    
-     // [Score]
+
+    // [Score]
     ComplexNote: t.content, // accidentals/octaves
     SimpleNoteCapital: t.content, // Simple notes (A, B, C) 
     SimpleNoteLower: t.content, // Simple notes (a, b, c)
     Annotation: t.string,
     Duration: t.number,  // Elements related to time modifications
-    Ornament: t.keyword, 
+    Ornament: t.keyword,
 
     // [Defaults]
     MidiNumber: t.number,
-    Word: t.content,         
+    Word: t.content,
     SingleChar: t.content,
     AttributeValue: t.content,
     DirectiveArgs: t.content,
     BarComponent: t.comment,
     Slash: t.number,
     CommonTimeSignatures: t.content,
-   // Comments
+    // Comments
     Comment: t.lineComment,
     InlineComment: t.lineComment,
     CommentedDirective: t.lineComment,
 
     // Values and identifiers  
     InvalidValue: t.invalid,                // Invalid values - red
-    
+
     // InfoLines
     "InfoVal/Rest": t.string,
     "InfoVal/Spacing": t.string,
@@ -409,9 +433,9 @@ function generateStyleTags() {
 
     // === VOICE LINE ===
     // 
-    "VoiceLine/GenericAssignment": t.string, 
+    "VoiceLine/GenericAssignment": t.string,
 
-    "VoiceLine/VoiceName/Word": t.comment, 
+    "VoiceLine/VoiceName/Word": t.comment,
     "VoiceLine/VoiceName/MidiNumber": t.comment,
     "VoiceLine/VoiceName/SimpleNoteCapital": t.comment,
     "VoiceLine/VoiceName/textIdentifier": t.comment,
@@ -423,25 +447,25 @@ function generateStyleTags() {
     "VoiceLine/VoiceName/ComplexNote": t.comment,
     "VoiceLine/VoiceName/Ornament": t.comment,
 
-    
+
     // [MIDI]
     ProgramAssignment: t.propertyName,
     ChordProgAssignment: t.propertyName,
     ChannelAssignment: t.propertyName,
     // DrumAssignment: t.propertyName,
-    "DrumAssignment/Word": t.propertyName,      
+    "DrumAssignment/Word": t.propertyName,
     "DrumAssignment/DrumSequence/DrumStrike": t.number,
     "DrumAssignment/DrumSequence/Rest": t.comment,
-    "DrumAssignment/DrumSequence/Digit": t.number,     
+    "DrumAssignment/DrumSequence/Digit": t.number,
     GchordAssignment: t.propertyName,
     TransposeAssignment: t.propertyName,
-    DrumOnKeyword: t.string, 
+    DrumOnKeyword: t.string,
     DrumOffKeyword: t.string,
     GchordOnKeyword: t.string,
     GchordOffKeyword: t.string,
 
 
-    
+
     // [Assignments]
     // KEYS:  (PropertyName)
     "AssignmentKey/Word": t.propertyName,       // clef, shift
@@ -469,7 +493,7 @@ function generateStyleTags() {
 
 
   }
-  
+
   return tags
 }
 
@@ -480,7 +504,7 @@ export const abcLanguage = LRLanguage.define({
     ]
   }),
   languageData: {
-    commentTokens: {line: "%"}
+    commentTokens: { line: "%" }
   }
 })
 

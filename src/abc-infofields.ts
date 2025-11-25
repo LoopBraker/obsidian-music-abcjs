@@ -16,6 +16,11 @@ export const validInfoKeys = new Set([
   "V", "W", "X", "Z", "w"
 ])
 
+// Common time signatures for M: field
+export const commonTimeSignatures = [
+  "4/4", "3/4", "2/4", "6/8", "12/8", "2/2", "C", "C|", "none"
+]
+
 // Info Field Definitions with descriptions
 export const infoFieldDefinitions: Record<string, string> = {
   "A": "Area or region of origin",
