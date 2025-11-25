@@ -27,6 +27,7 @@ import {
 } from "./abc-key"
 
 
+
 // Add MIDI to directives set (special handling)
 const allDirectives = new Set(validDirectives)
 allDirectives.add("MIDI")
@@ -357,11 +358,12 @@ const abcLinter = linter(view => {
 function generateStyleTags() {
   const tags: Record<string, any> = {
     // Core ABC syntax elements
-    DirectiveKeyword: t.namespace,            // %%keyword - purple
-    MidiKeyword: t.keyword,                 // %%MIDI - purple
-    InfoKey: t.propertyName,                    // T:, M:, etc - blue
-    VoiceKey: t.keyword,                    // V: - purple
-    KeyKey: t.keyword,                      // K: - purple
+    DirectiveKeyword: t.namespace,            // %%keyword
+    MidiKeyword: t.keyword,                 // %%MIDI
+    InfoKey: t.propertyName,                    // T:, 
+    VoiceKey: t.keyword,                    // V
+    KeyKey: t.keyword,                      // K
+    TimeSignatureKey: t.propertyName,        // M
     
      // [Score]
     ComplexNote: t.content, // accidentals/octaves
@@ -379,6 +381,7 @@ function generateStyleTags() {
     DirectiveArgs: t.content,
     BarComponent: t.comment,
     Slash: t.number,
+    CommonTimeSignatures: t.content,
    // Comments
     Comment: t.lineComment,
     InlineComment: t.lineComment,
@@ -400,6 +403,9 @@ function generateStyleTags() {
     "InfoVal/Duration": t.string,
     "InfoVal/ComplexNote": t.string,
     "InfoVal/Ornament": t.string,
+
+    // TimeSignatureLine
+    "TimeSignatureLine/CommonTimeSignatures": t.number,
 
     // === VOICE LINE ===
     // 
@@ -446,7 +452,8 @@ function generateStyleTags() {
 
     "KeyTonic/SimpleNoteCapital": t.string, // C, D, E
     "KeyTonic/Sharp": t.string, // #
-    KeyMode: t.string, // #
+    "KeyTonic/KeyMode": t.string, // #
+    "KeyTonic/None": t.string, // none
 
 
     // VALUES:

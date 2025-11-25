@@ -11,7 +11,7 @@ export interface InfoFieldConfig {
 
 // Valid ABC info keys (without : suffix)
 export const validInfoKeys = new Set([
-  "A", "B", "C", "COMP", "D", "F", "G", "H", "I", "K",
+  "A", "B", "C", "D", "F", "G", "H", "I", "K",
   "L", "M", "m", "N", "O", "P", "Q", "R", "S", "s", "T", "U",
   "V", "W", "X", "Z", "w"
 ])
@@ -21,7 +21,6 @@ export const infoFieldDefinitions: Record<string, string> = {
   "A": "Area or region of origin",
   "B": "Book or source",
   "C": "Composer",
-  "COMP": "Composition field (multi-line with attributes and components)",
   "D": "Discography",
   "F": "File URL",
   "G": "Group",

@@ -5,11 +5,12 @@
 line { 
   // 1. Specific Headers (Priority)
   CommentedDirective | 
-  MidiLine |    
-  DirectiveLine | 
-  VoiceLine |   
-  KeyLine |     
-  InfoLine |    
+  MidiLine |    // %%MIDI
+  DirectiveLine | // %%
+  VoiceLine |   // V:
+  KeyLine | // K:    
+  InfoLine |
+  TimeSignatureLine | // M:
   
   // 2. Comments
   Comment | 
@@ -81,18 +82,14 @@ VoiceName {
 VoiceProperty { GenericAssignment | textIdentifier}
 
 // === Key ===
-KeyLine { KeyKey Space? KeyTonic (KeyProperty)* InlineComment? }
+KeyLine { KeyKey Space? KeyTonic (KeyProperty Space)* InlineComment? }
 
 KeyTonic {
   // Option 1: "none" or "HP"
-  KeyNone |
+  None |
   // Option 2: Standard Key
   // Matches C, F#, Bb, Am (if written as word)
   SimpleNoteCapital Space? (Sharp)? Space? KeyMode? Space
-}
-
-KeyNone {
-  @specialize<Word, "none" | "HP" | "Hp">
 }
 
 KeyMode {
@@ -108,12 +105,17 @@ KeyMode {
     @specialize<SingleChar, "m">
 }
 
-
 KeyProperty { GenericAssignment | textIdentifier }
 
+// === Info Fields ===
 // === Generic Info ===
 InfoLine { InfoKey ( Space? InfoVal )* InlineComment? }
 InfoVal { textIdentifier | MidiNumber | Slash | BarComponent}
+
+TimeSignatureLine { 
+  TimeSignatureKey Space? CommonTimeSignatures InlineComment? 
+}
+
 
 // === Helpers ===
 GenericAssignment { 
@@ -144,6 +146,10 @@ DirectiveLine {
   DirectiveKeyword { "%%" ![ \t%\n]+ }
   VoiceKey { "V:" }
   KeyKey { "K:" }
+  TimeSignatureKey { "M:" }
+
+  None { "none" }
+  CommonTimeSignatures{ None | "4/4" | "3/4" | "2/4" | "6/8" | "12/8" | "2/2" | "C" | "C|"}
 
   Sharp { "#" }
   Digit { @digit+ }
@@ -196,7 +202,7 @@ DirectiveLine {
   CommentedDirective { "%%%" ![\n]* }
   InlineComment { "%" ![\n]* }
   Comment { "%" ![\n]* }
-  Other { ![\n]+ }
+  Other { ![\n]+ } //  THis 
   
   @precedence { 
     equalsWithSpaces,
@@ -205,7 +211,9 @@ DirectiveLine {
     DirectiveKeyword, 
     VoiceKey,
     KeyKey,
+    TimeSignatureKey,
     BarComponent,
+    CommonTimeSignatures,
     Annotation,
     Ornament,
     Duration,

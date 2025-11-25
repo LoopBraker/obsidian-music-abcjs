@@ -4,7 +4,7 @@ import {ExternalTokenizer} from "@lezer/lr"
 import {InfoKey} from "./abc.grammar.terms"
 
 const newline = 10, carriageReturn = 13, colon = 58, 
-      upperV = 86, upperK = 75;
+      upperV = 86, upperK = 75, upperM = 77;
 
 function isLetter(code: number) {
   return (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
@@ -26,7 +26,7 @@ export const lineStartTokens = new ExternalTokenizer((input, stack) => {
   if (isLetter(char) && next === colon) {
     // 3. Exceptions: 
     // V: and K: have their own specific tokens in the grammar.
-    if (char === upperV || char === upperK) return;
+    if (char === upperV || char === upperK || char === upperM) return;
 
     input.acceptToken(InfoKey, 2) // Consume 2 chars
   }
