@@ -35,7 +35,8 @@ ScoreContent {
   Ornament |
   Duration |
   ComplexNote | 
-  SimpleNote  | 
+  SimpleNoteCapital | 
+  SimpleNoteLower | 
   Rest |
   Spacing |
   MidiNumber |   
@@ -68,7 +69,7 @@ VoiceLine { VoiceKey Space? VoiceName (Space VoiceProperty)* InlineComment? }
 
 VoiceName { 
   // 1. Allow text followed immediately by a number (e.g. "V1", "Violin2")
-    (Word | SimpleNote | SingleChar | ComplexNote) (SimpleNote | ComplexNote | Word)? (Duration | MidiNumber)? |
+    (Word | SimpleNoteCapital | SimpleNoteLower | SingleChar | ComplexNote) (SimpleNoteCapital | SimpleNoteLower | ComplexNote | Word)? (Duration | MidiNumber)? |
   
   // 2. Fallbacks for other single types
   MidiNumber | Slash | BarComponent | Annotation | Duration
@@ -76,19 +77,32 @@ VoiceName {
 VoiceProperty { GenericAssignment | textIdentifier}
 
 // === Key ===
-KeyLine { KeyKey Space? KeyTonic (Space KeyProperty)* InlineComment? }
+KeyLine { KeyKey Space? KeyTonic (KeyProperty)* InlineComment? }
 
 KeyTonic {
   // Option 1: "none" or "HP"
   KeyNone |
   // Option 2: Standard Key
   // Matches C, F#, Bb, Am (if written as word)
-  SimpleNote (Sharp)?
+  SimpleNoteCapital Space?  (Sharp)? Space? KeyMode? Space
 }
 
 KeyNone {
-  @specialize<Word, "none" | "HP">
+  @specialize<Word, "none" | "HP" | "Hp">
 }
+
+KeyMode {
+   @specialize<Word, "m" | "min" | "minor" | 
+                     "maj" | "major" | 
+                     "dor" | "dorian" | 
+                     "phr" | "phrygian" | 
+                     "lyd" | "lydian" | 
+                     "mix" | "mixolydian" | 
+                     "loc" | "locrian" | 
+                     "aeo" | "aeolian" | 
+                     "ion" | "ionian"> 
+}
+
 
 KeyProperty { GenericAssignment | textIdentifier }
 
@@ -110,7 +124,7 @@ AssignmentValue {
 }
 
 textIdentifier { 
-  Word | SimpleNote | Rest | Spacing | SingleChar | Annotation | Duration | ComplexNote | Ornament 
+  Word | SimpleNoteCapital | SimpleNoteLower | Rest | Spacing | SingleChar | Annotation | Duration | ComplexNote | Ornament 
 }
 
 // === Directives ===
@@ -153,7 +167,8 @@ DirectiveLine {
   }
 
   // SimpleNote (1 char note)
-  SimpleNote { $[A-Ga-g] }
+  SimpleNoteCapital { $[A-G] }
+  SimpleNoteLower { $[a-g] }
 
   // Rests and Spacing: zZxy
   Rest { $[zZ] }
@@ -189,7 +204,8 @@ DirectiveLine {
     Duration,
     ComplexNote,
     Word,
-    SimpleNote,
+    SimpleNoteCapital,
+    SimpleNoteLower,
     Rest,
     Spacing,
     SingleChar,

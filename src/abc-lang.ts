@@ -395,7 +395,8 @@ function generateStyleTags() {
     
      // [Score]
     ComplexNote: t.content, // accidentals/octaves
-    SimpleNote: t.content, // Simple notes (A, B, C) 
+    SimpleNoteCapital: t.content, // Simple notes (A, B, C) 
+    SimpleNoteLower: t.content, // Simple notes (a, b, c)
     Annotation: t.string,
     Duration: t.number,  // Elements related to time modifications
     Ornament: t.keyword, 
@@ -436,7 +437,7 @@ function generateStyleTags() {
 
     "VoiceLine/VoiceName/Word": t.comment, 
     "VoiceLine/VoiceName/MidiNumber": t.comment,
-    "VoiceLine/VoiceName/SimpleNote": t.comment,
+    "VoiceLine/VoiceName/SimpleNoteCapital": t.comment,
     "VoiceLine/VoiceName/textIdentifier": t.comment,
     "VoiceLine/VoiceName/SingleChar": t.comment,
     "VoiceLine/VoiceName/Slash": t.comment,
@@ -472,8 +473,9 @@ function generateStyleTags() {
     "AssignmentKey/Annotation": t.propertyName, // lyrics, text
     "AssignmentKey/Duration": t.propertyName,   // length"
 
-    "KeyLine/KeyTonic/SimpleNote": t.string, // C, D, E
+    "KeyLine/KeyTonic/SimpleNoteCapital": t.string, // C, D, E
     "KeyLine/KeyTonic/Sharp": t.string, // #
+    "KeyLine/KeyTonic/KeyMode": t.string, // #
 
 
     // VALUES:
