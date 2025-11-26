@@ -52,7 +52,7 @@ const abcFoldService = foldService.of((state, from, to) => {
     while (endLine <= state.doc.lines) {
       const nextLine = state.doc.line(endLine);
       const nextLineText = nextLine.text.trim();
-      
+
       if (nextLineText.startsWith('%-') || nextLineText.startsWith('%+')) {
         foldEnd = state.doc.line(endLine - 1).to;
         break;
@@ -162,7 +162,13 @@ export class AbcEditorView extends ItemView {
             }
             if (update.selectionSet && this.onSelectionChange) {
               const selection = update.state.selection.main;
-              this.onSelectionChange(selection.from, selection.to);
+              let start = selection.from;
+              let end = selection.to;
+
+              if (start === end && start < update.state.doc.length) {
+                end = start + 1;
+              }
+              this.onSelectionChange(start, end);
             }
           }),
           EditorView.theme({
@@ -327,7 +333,7 @@ export class AbcEditorView extends ItemView {
                 changes: { from: insertPos, insert: templateContent },
                 selection: EditorSelection.cursor(insertPos + templateContent.length)
               });
-              
+
               // Apply default folds to the newly inserted content
               // (Wait 1 tick for DOM update to be safe, though dispatch is sync)
               setTimeout(() => this.applyInitialFolds(), 10);
@@ -447,7 +453,7 @@ export class AbcEditorView extends ItemView {
         while (endLine <= doc.lines) {
           const nextLine = doc.line(endLine);
           const nextText = nextLine.text.trim();
-          
+
           if (nextText.startsWith('%-') || nextText.startsWith('%+')) {
             foldEnd = doc.line(endLine - 1).to;
             foundEnd = true;
