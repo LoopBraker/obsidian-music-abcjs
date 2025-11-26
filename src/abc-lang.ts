@@ -390,16 +390,17 @@ function generateStyleTags() {
     TimeSignatureKey: t.propertyName,        // M
 
     // [Score]
-    ComplexNote: t.content, // accidentals/octaves
-    SimpleNoteCapital: t.content, // Simple notes (A, B, C) 
+    ComplexNote: t.comment, // accidentals/octaves
+    SimpleNoteCapital: t.comment, // Simple notes (A, B, C) 
     SimpleNoteLower: t.content, // Simple notes (a, b, c)
     Annotation: t.string,
     Duration: t.number,  // Elements related to time modifications
     Ornament: t.keyword,
+    Other: t.comment,
 
     // [Defaults]
     MidiNumber: t.number,
-    Word: t.content,
+    Word: t.comment,
     SingleChar: t.content,
     AttributeValue: t.content,
     DirectiveArgs: t.content,
@@ -449,7 +450,10 @@ function generateStyleTags() {
 
 
     // [MIDI]
-    ProgramAssignment: t.propertyName,
+    // ProgramAssignment: t.propertyName,
+    "ProgramAssignment/SingleDigit": t.string,
+    "ProgramAssignment/Digit": t.string,
+    MidiProgram: t.propertyName,
     ChordProgAssignment: t.propertyName,
     ChannelAssignment: t.propertyName,
     // DrumAssignment: t.propertyName,
