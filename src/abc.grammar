@@ -38,12 +38,12 @@ ScoreContent {
   ComplexNote | 
   SimpleNoteCapital | 
   SimpleNoteLower | 
-  Rest |
-  Spacing |
-  MidiNumber |   
-  Slash |       
-  Word | 
-  SingleChar
+  Rest 
+  // Spacing |
+  // MidiNumber |   
+  // Slash |       
+  // Word | 
+  // SingleChar
 }
 
 // === MIDI ===

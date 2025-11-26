@@ -390,8 +390,8 @@ function generateStyleTags() {
     TimeSignatureKey: t.propertyName,        // M
 
     // [Score]
-    ComplexNote: t.comment, // accidentals/octaves
-    SimpleNoteCapital: t.comment, // Simple notes (A, B, C) 
+    ComplexNote: t.content, // accidentals/octaves
+    SimpleNoteCapital: t.content, // Simple notes (A, B, C) 
     SimpleNoteLower: t.content, // Simple notes (a, b, c)
     Annotation: t.string,
     Duration: t.number,  // Elements related to time modifications
