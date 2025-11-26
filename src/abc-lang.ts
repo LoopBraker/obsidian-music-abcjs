@@ -435,17 +435,17 @@ function generateStyleTags() {
     // 
     "VoiceLine/GenericAssignment": t.string,
 
-    "VoiceLine/VoiceName/Word": t.comment,
-    "VoiceLine/VoiceName/MidiNumber": t.comment,
-    "VoiceLine/VoiceName/SimpleNoteCapital": t.comment,
-    "VoiceLine/VoiceName/textIdentifier": t.comment,
-    "VoiceLine/VoiceName/SingleChar": t.comment,
-    "VoiceLine/VoiceName/Slash": t.comment,
-    "VoiceLine/VoiceName/BarComponent": t.comment,
-    "VoiceLine/VoiceName/Annotation": t.comment,
-    "VoiceLine/VoiceName/Duration": t.comment,
-    "VoiceLine/VoiceName/ComplexNote": t.comment,
-    "VoiceLine/VoiceName/Ornament": t.comment,
+    "VoiceLine/VoiceName/Word": t.string,
+    "VoiceLine/VoiceName/MidiNumber": t.string,
+    "VoiceLine/VoiceName/SimpleNoteCapital": t.string,
+    "VoiceLine/VoiceName/textIdentifier": t.string,
+    "VoiceLine/VoiceName/SingleChar": t.string,
+    "VoiceLine/VoiceName/Slash": t.string,
+    "VoiceLine/VoiceName/BarComponent": t.string,
+    "VoiceLine/VoiceName/Annotation": t.string,
+    "VoiceLine/VoiceName/Duration": t.string,
+    "VoiceLine/VoiceName/ComplexNote": t.string,
+    "VoiceLine/VoiceName/Ornament": t.string,
 
 
     // [MIDI]
@@ -453,7 +453,7 @@ function generateStyleTags() {
     ChordProgAssignment: t.propertyName,
     ChannelAssignment: t.propertyName,
     // DrumAssignment: t.propertyName,
-    "DrumAssignment/Word": t.propertyName,
+    "DrumAssignment/Drum": t.propertyName,
     "DrumAssignment/DrumSequence/DrumStrike": t.number,
     "DrumAssignment/DrumSequence/Rest": t.comment,
     "DrumAssignment/DrumSequence/Digit": t.number,
