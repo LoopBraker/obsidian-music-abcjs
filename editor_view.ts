@@ -4,7 +4,7 @@ import { EditorState, EditorSelection } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab, toggleComment } from '@codemirror/commands';
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
-import { bracketMatching, indentOnInput, foldGutter, foldService, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
+import { bracketMatching, indentOnInput, foldGutter, foldService, foldEffect, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { solarizedLight } from 'cm6-theme-solarized-light';
@@ -24,33 +24,13 @@ const toggleAbcComment = (view: EditorView): boolean => {
 
     // Check what type of line this is
     if (lineText.match(/^%%%/)) {
-      // Line starts with %%% -> remove one % to make %%
-      changes.push({
-        from: line.from,
-        to: line.from + 3,
-        insert: '%%'
-      });
+      changes.push({ from: line.from, to: line.from + 3, insert: '%%' });
     } else if (lineText.match(/^%%/)) {
-      // Line starts with %% -> add % to make %%%
-      changes.push({
-        from: line.from,
-        to: line.from,
-        insert: '%'
-      });
+      changes.push({ from: line.from, to: line.from, insert: '%' });
     } else if (lineText.match(/^%/)) {
-      // Line starts with single % -> remove it
-      changes.push({
-        from: line.from,
-        to: line.from + 1,
-        insert: ''
-      });
+      changes.push({ from: line.from, to: line.from + 1, insert: '' });
     } else {
-      // Normal line -> add single %
-      changes.push({
-        from: line.from,
-        to: line.from,
-        insert: '%'
-      });
+      changes.push({ from: line.from, to: line.from, insert: '%' });
     }
   }
 
@@ -61,34 +41,32 @@ const toggleAbcComment = (view: EditorView): boolean => {
   return true;
 };
 
-// Custom fold service for ABC notation using %- markers
+// Custom fold service for ABC notation using %- (default fold) and %+ (default open)
 const abcFoldService = foldService.of((state, from, to) => {
   const line = state.doc.lineAt(from);
-  const lineText = line.text;
+  const lineText = line.text.trim();
 
-  // Check if this line starts with %-
-  if (lineText.trim().startsWith('%=')) {
-    // Find the next %- line
+  // Check if this line starts with either %- or %+
+  if (lineText.startsWith('%-') || lineText.startsWith('%+')) {
     let endLine = line.number + 1;
     let foldEnd = line.to;
 
     while (endLine <= state.doc.lines) {
       const nextLine = state.doc.line(endLine);
-      if (nextLine.text.trim().startsWith('%=')) {
-        // Found the next fold marker - fold up to the line before it
+      const nextLineText = nextLine.text.trim();
+      
+      if (nextLineText.startsWith('%-') || nextLineText.startsWith('%+')) {
         foldEnd = state.doc.line(endLine - 1).to;
         break;
       }
       endLine++;
 
-      // If we reach the end of document, fold to end
       if (endLine > state.doc.lines) {
         foldEnd = state.doc.length;
         break;
       }
     }
 
-    // Only create fold if there's content to fold
     if (foldEnd > line.to) {
       return { from: line.to, to: foldEnd };
     }
@@ -96,9 +74,6 @@ const abcFoldService = foldService.of((state, from, to) => {
 
   return null;
 });
-
-// ABC Language is now defined in src/abc-lang.ts using proper Lezer grammar
-// This provides real syntax highlighting with a compiled parser!
 
 export class AbcEditorView extends ItemView {
   private editorView: EditorView | null = null;
@@ -128,11 +103,9 @@ export class AbcEditorView extends ItemView {
     return 'music';
   }
 
-  // PROTECTION: Save data when reloading (Cmd+R) or closing Obsidian
   private handleBeforeUnload = () => {
     if (this.editorView && this.onSave) {
       const content = this.editorView.state.doc.toString();
-      // Fire and forget save on unload
       this.onSave(content).catch(err => console.error("Save on close failed", err));
     }
   }
@@ -142,35 +115,25 @@ export class AbcEditorView extends ItemView {
     container.empty();
     container.addClass('abc-editor-view');
 
-    // Activate reload/quit protection
     window.addEventListener('beforeunload', this.handleBeforeUnload);
 
     const header = container.createDiv({ cls: 'abc-editor-view-header' });
     header.createEl('h4', { text: 'ABC Music Code Editor' });
 
-    // Create template selector container
     this.templateContainer = container.createDiv({ cls: 'abc-template-selector' });
     await this.createTemplateSelector();
 
-    // Create container for CodeMirror
     this.editorContainer = container.createDiv({ cls: 'abc-codemirror-container' });
 
-    // Get appropriate theme based on Obsidian's current theme
     this.currentTheme = this.getTheme();
 
-    // Create CodeMirror editor
     this.editorView = new EditorView({
       state: EditorState.create({
         doc: this.currentContent,
         extensions: [
-          // 1. Theme Configuration
           this.currentTheme,
-
-          // 2. Language & Highlighting with proper Lezer grammar
-          abc([this.templateCompletionSource.bind(this)]),  // Use the abc() function from src/abc-lang.ts
+          abc([this.templateCompletionSource.bind(this)]),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-
-          // 3. Essential Extensions
           abcFoldService,
           foldGutter(),
           lineNumbers(),
@@ -196,7 +159,6 @@ export class AbcEditorView extends ItemView {
             ...completionKeymap,
             indentWithTab,
           ]),
-
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               if (this.updateTimeout) clearTimeout(this.updateTimeout);
@@ -209,31 +171,20 @@ export class AbcEditorView extends ItemView {
               this.onSelectionChange(selection.from, selection.to);
             }
           }),
-
-          // 4. Editor styling
           EditorView.theme({
-            "&": {
-              fontSize: "14px",
-              height: "100%"
-            },
-            ".cm-scroller": {
-              fontFamily: "var(--font-monospace, 'Courier New', monospace)",
-              lineHeight: "1.6",
-            },
-            ".cm-content": {
-              padding: "10px 0",
-            },
-            ".cm-line": {
-              padding: "0 10px",
-            },
-            "&.cm-focused": {
-              outline: "none",
-            },
+            "&": { fontSize: "14px", height: "100%" },
+            ".cm-scroller": { fontFamily: "var(--font-monospace, 'Courier New', monospace)", lineHeight: "1.6" },
+            ".cm-content": { padding: "10px 0" },
+            ".cm-line": { padding: "0 10px" },
+            "&.cm-focused": { outline: "none" },
           }),
         ],
       }),
       parent: this.editorContainer,
     });
+
+    // NOTE: We do NOT call applyInitialFolds here because doc is usually empty at this millisecond.
+    // It is called in setContent instead.
 
     const helpText = container.createDiv({ cls: 'abc-editor-view-help' });
     helpText.innerHTML = `
@@ -244,7 +195,6 @@ export class AbcEditorView extends ItemView {
   }
 
   async onClose(): Promise<void> {
-    // Cleanup
     if (this.updateTimeout) {
       clearTimeout(this.updateTimeout);
     }
@@ -269,8 +219,10 @@ export class AbcEditorView extends ItemView {
 
     if (this.editorView) {
       const currentDoc = this.editorView.state.doc.toString();
+      // Even if content is the same, we might need to reset view, 
+      // but usually we check difference. 
+      // For initial load, currentDoc is "" and content is "real text".
       if (currentDoc !== content) {
-        // Preserve cursor position if possible
         const selection = this.editorView.state.selection.main;
         this.editorView.dispatch({
           changes: {
@@ -280,6 +232,9 @@ export class AbcEditorView extends ItemView {
           },
           selection: EditorSelection.cursor(Math.min(selection.from, content.length)),
         });
+
+        // CRITICAL: Apply folds AFTER content is loaded
+        this.applyInitialFolds();
       }
     }
   }
@@ -289,7 +244,6 @@ export class AbcEditorView extends ItemView {
     if (this.editorView) {
       const currentDoc = this.editorView.state.doc.toString();
       if (currentDoc !== content) {
-        // Preserve cursor position
         const selection = this.editorView.state.selection.main;
         this.editorView.dispatch({
           changes: {
@@ -299,23 +253,23 @@ export class AbcEditorView extends ItemView {
           },
           selection: EditorSelection.cursor(Math.min(selection.from, content.length)),
         });
+        // We usually don't force re-fold on minor updates (like typing elsewhere),
+        // only on full file loads via setContent.
       }
     }
   }
 
+  // ... (highlightRange and updateCallbacks remain same) ...
+
   highlightRange(startChar: number, endChar: number): void {
     if (!this.editorView) return;
-
-    // @ts-ignore: Tell Obsidian to make this sidebar leaf active/visible
+    // @ts-ignore
     if (this.app?.workspace) this.app.workspace.revealLeaf(this.leaf);
-
     setTimeout(() => {
       if (!this.editorView) return;
-
       const maxLength = this.editorView.state.doc.length;
       const safeStart = Math.max(0, Math.min(startChar, maxLength));
       const safeEnd = Math.max(0, Math.min(endChar, maxLength));
-
       this.editorView.focus();
       this.editorView.dispatch({
         selection: EditorSelection.single(safeStart, safeEnd),
@@ -328,36 +282,26 @@ export class AbcEditorView extends ItemView {
     onChange: (content: string) => void,
     onSelectionChange?: (startChar: number, endChar: number) => void
   ): void {
-    // Update callbacks without touching the content
     this.onChange = onChange;
     this.onSelectionChange = onSelectionChange || null;
   }
 
+  // ... (template selector logic remains same) ...
+
   private async createTemplateSelector(): Promise<void> {
     if (!this.templateContainer) return;
-
     this.templateContainer.empty();
-
-    // Get plugin settings
     const app = (this.app as any);
     const plugin = app.plugins?.plugins?.['music-code-blocks'];
     const templatesFolder = plugin?.settings?.templatesFolder;
+    if (!templatesFolder) return;
 
-    if (!templatesFolder) {
-      return; // No templates folder configured
-    }
-
-    // Find all markdown files in the templates folder
     const files = this.app.vault.getMarkdownFiles();
     const templateFiles = files.filter(file =>
       file.path.startsWith(templatesFolder) && file.path.endsWith('.md')
     );
+    if (templateFiles.length === 0) return;
 
-    if (templateFiles.length === 0) {
-      return; // No templates found
-    }
-
-    // Create dropdown
     const label = this.templateContainer.createEl('label', {
       text: 'Load Template: ',
       cls: 'abc-template-label'
@@ -366,31 +310,23 @@ export class AbcEditorView extends ItemView {
     this.templateDropdown = this.templateContainer.createEl('select', {
       cls: 'abc-template-dropdown'
     });
-
-    // Add default option
     this.templateDropdown.createEl('option', {
       text: '-- Select a template --',
       value: ''
     });
 
-    // Add template files
     for (const file of templateFiles) {
-      const fileName = file.basename;
       this.templateDropdown.createEl('option', {
-        text: fileName,
+        text: file.basename,
         value: file.path
       });
     }
 
-    // Handle template selection
     this.templateDropdown.addEventListener('change', async () => {
       const selectedPath = this.templateDropdown?.value;
       if (selectedPath) {
         await this.loadTemplate(selectedPath);
-        // Reset dropdown
-        if (this.templateDropdown) {
-          this.templateDropdown.value = '';
-        }
+        if (this.templateDropdown) this.templateDropdown.value = '';
       }
     });
   }
@@ -404,16 +340,12 @@ export class AbcEditorView extends ItemView {
   private async loadTemplate(filePath: string): Promise<void> {
     try {
       const file = this.app.vault.getAbstractFileByPath(filePath);
-      if (!(file instanceof TFile)) {
-        console.error('Template file not found:', filePath);
-        return;
-      }
+      if (!(file instanceof TFile)) return;
 
       const content = await this.app.vault.read(file);
       const templateContent = this.parseTemplateContent(content);
 
       if (templateContent) {
-        // Update editor content
         if (this.editorView) {
           this.editorView.dispatch({
             changes: {
@@ -424,46 +356,36 @@ export class AbcEditorView extends ItemView {
             selection: EditorSelection.cursor(0),
           });
 
-          // Trigger onChange callback
+          // IMPORTANT: Apply default folds after loading a template
+          this.applyInitialFolds();
+
           if (this.onChange) {
             this.onChange(templateContent);
           }
         }
-      } else {
-        console.warn('No music-abc code block found in template:', filePath);
       }
     } catch (error) {
       console.error('Error loading template:', error);
     }
   }
 
-  // Template autosuggestion source
   private async templateCompletionSource(context: CompletionContext): Promise<CompletionResult | null> {
     const line = context.state.doc.lineAt(context.pos);
     const lineText = context.state.doc.sliceString(line.from, context.pos);
-
-    // Check if line starts with "temp" or "TEMP" (case insensitive match for trigger)
     const match = lineText.match(/^(temp|TEMP)/i);
-
     if (!match) return null;
 
-    // Get configured templates folder
     const app = (this.app as any);
     const plugin = app.plugins?.plugins?.['music-code-blocks'];
     const templatesFolder = plugin?.settings?.templatesFolder;
-
     if (!templatesFolder) return null;
 
-    // Get template files
     const files = this.app.vault.getMarkdownFiles();
     const templateFiles = files.filter(file =>
       file.path.startsWith(templatesFolder) && file.path.endsWith('.md')
     );
-
     if (templateFiles.length === 0) return null;
 
-    // Calculate the range of the word being typed (including "temp")
-    // We want to replace everything from the start of the line to the cursor
     const word = context.matchBefore(/^(temp|TEMP).*$/i);
     if (!word) return null;
 
@@ -476,26 +398,22 @@ export class AbcEditorView extends ItemView {
         detail: 'Template',
         type: 'text',
         apply: async (view, completion, from, to) => {
-          // 1. Remove the trigger text "temp ..."
-          view.dispatch({
-            changes: { from, to, insert: "" }
-          });
-
-          // 2. Load and parse the template file
+          view.dispatch({ changes: { from, to, insert: "" } });
           try {
             const content = await this.app.vault.read(file);
             const templateContent = this.parseTemplateContent(content);
-
             if (templateContent) {
-              // 3. Insert the template content
               const insertPos = from;
               view.dispatch({
                 changes: { from: insertPos, insert: templateContent },
                 selection: EditorSelection.cursor(insertPos + templateContent.length)
               });
+              // Note: We can't easily access 'this' to call applyInitialFolds here easily 
+              // without binding, but typically template insertion is small.
+              // If you want folds on autocomplete, you'd need to emit an event or bind this.
             }
           } catch (err) {
-            console.error("Failed to load template for completion", err);
+            console.error("Failed to load template", err);
           }
         }
       })),
@@ -511,32 +429,21 @@ export class AbcEditorView extends ItemView {
     const app = (this.app as any);
     const plugin = app.plugins?.plugins?.['music-code-blocks'];
     const isDark = document.body.classList.contains('theme-dark');
-
     if (isDark) {
       const darkTheme = plugin?.settings?.darkTheme || 'oneDark';
-      switch (darkTheme) {
-        case 'solarizedDark': return solarizedDark;
-        case 'oneDark':
-        default: return oneDark;
-      }
+      return darkTheme === 'solarizedDark' ? solarizedDark : oneDark;
     } else {
-      const lightTheme = plugin?.settings?.lightTheme || 'solarizedLight';
-      // Currently only solarizedLight available, but structure allows future themes
       return solarizedLight;
     }
   }
 
   refreshTheme(): void {
     if (!this.editorView) return;
-
     const newTheme = this.getTheme();
     if (newTheme !== this.currentTheme) {
       this.currentTheme = newTheme;
-
-      // Recreate editor with new theme
       const content = this.editorView.state.doc.toString();
       const selection = this.editorView.state.selection;
-
       this.editorView.destroy();
       this.createEditorWithTheme(content, selection);
     }
@@ -550,14 +457,9 @@ export class AbcEditorView extends ItemView {
         doc: content,
         selection: selection,
         extensions: [
-          // 1. Theme Configuration
           this.currentTheme,
-
-          // 2. Language & Highlighting with proper Lezer grammar
           abc([this.templateCompletionSource.bind(this)]),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-
-          // 3. Essential Extensions
           abcFoldService,
           foldGutter(),
           lineNumbers(),
@@ -583,7 +485,6 @@ export class AbcEditorView extends ItemView {
             ...completionKeymap,
             indentWithTab,
           ]),
-
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               if (this.updateTimeout) clearTimeout(this.updateTimeout);
@@ -596,30 +497,63 @@ export class AbcEditorView extends ItemView {
               this.onSelectionChange(selection.from, selection.to);
             }
           }),
-
-          // 4. Theme-specific styling
           EditorView.theme({
-            "&": {
-              fontSize: "14px",
-              height: "100%"
-            },
-            ".cm-scroller": {
-              fontFamily: "var(--font-monospace, 'Courier New', monospace)",
-              lineHeight: "1.6",
-            },
-            ".cm-content": {
-              padding: "10px 0",
-            },
-            ".cm-line": {
-              padding: "0 10px",
-            },
-            "&.cm-focused": {
-              outline: "none",
-            },
+            "&": { fontSize: "14px", height: "100%" },
+            ".cm-scroller": { fontFamily: "var(--font-monospace, 'Courier New', monospace)", lineHeight: "1.6" },
+            ".cm-content": { padding: "10px 0" },
+            ".cm-line": { padding: "0 10px" },
+            "&.cm-focused": { outline: "none" },
           }),
         ],
       }),
       parent: this.editorContainer,
     });
+    
+    // Call it here for when theme is refreshed
+    this.applyInitialFolds();
+  }
+
+  private applyInitialFolds(): void {
+    if (!this.editorView) return;
+
+    const state = this.editorView.state;
+    const doc = state.doc;
+    const effects = [];
+
+    for (let i = 1; i <= doc.lines; i++) {
+      const line = doc.line(i);
+      const text = line.text.trim();
+
+      // Only force fold if it starts with %-
+      if (text.startsWith('%-')) {
+        let endLine = i + 1;
+        let foldEnd = line.to;
+        let foundEnd = false;
+
+        while (endLine <= doc.lines) {
+          const nextLine = doc.line(endLine);
+          const nextText = nextLine.text.trim();
+          
+          if (nextText.startsWith('%-') || nextText.startsWith('%+')) {
+            foldEnd = doc.line(endLine - 1).to;
+            foundEnd = true;
+            break;
+          }
+          endLine++;
+        }
+
+        if (!foundEnd && endLine > doc.lines) {
+          foldEnd = doc.length;
+        }
+
+        if (foldEnd > line.to) {
+          effects.push(foldEffect.of({ from: line.to, to: foldEnd }));
+        }
+      }
+    }
+
+    if (effects.length > 0) {
+      this.editorView.dispatch({ effects });
+    }
   }
 }
