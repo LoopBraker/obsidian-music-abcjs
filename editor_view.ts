@@ -115,8 +115,6 @@ export class AbcEditorView extends ItemView {
     const header = container.createDiv({ cls: 'abc-editor-view-header' });
     header.createEl('h4', { text: 'ABC Music Code Editor' });
 
-    // DROPDOWN REMOVED HERE
-
     this.editorContainer = container.createDiv({ cls: 'abc-codemirror-container' });
 
     this.currentTheme = this.getTheme();

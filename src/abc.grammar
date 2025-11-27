@@ -1,10 +1,14 @@
-@top Program { (line newline)* line? }
+@top Program { (line Newline)* line? }
 
-@external tokens lineStartTokens from "./tokens" { InfoKey }
+@external tokens lineStartTokens from "./tokens" { 
+  InfoKey,
+  KeyKey,
+  VoiceKey,
+  TimeSignatureKey
+}
 
 line { 
   // 1. Specific Headers (Priority)
-  CommentedDirective | 
   MidiLine |    // %%MIDI
   DirectiveLine | // %%
   VoiceLine |   // V:
@@ -33,17 +37,13 @@ ScoreLine {
 ScoreContent {
   BarComponent |
   Annotation |
-  Ornament |
+  SymbolDecoration |
+  NamedDecoration |
   Duration |
   ComplexNote | 
   SimpleNoteCapital | 
   SimpleNoteLower | 
   Rest 
-  // Spacing |
-  // MidiNumber |   
-  // Slash |       
-  // Word | 
-  // SingleChar
 }
 
 // === MIDI ===
@@ -125,7 +125,7 @@ TimeSignatureLine {
 
 // === Helpers ===
 GenericAssignment { 
-  AssignmentKey equalsWithSpaces AssignmentValue 
+  AssignmentKey EqualsWithSpaces AssignmentValue 
 }
 
 AssignmentKey { 
@@ -137,7 +137,7 @@ AssignmentValue {
 }
 
 textIdentifier { 
-  Word | SimpleNoteCapital | SimpleNoteLower | Rest | Spacing | SingleChar | Annotation | Duration | ComplexNote | Ornament 
+  Word | SimpleNoteCapital | SimpleNoteLower | Rest | Spacing | SingleChar | Annotation | Duration | ComplexNote | SymbolDecoration 
 }
 
 // === Directives ===
@@ -146,13 +146,15 @@ DirectiveLine {
 }
 
 @tokens {
-  newline { "\n" }
+  Newline { "\n" }
+  Space { $[\t ]+ }
+  EqualsWithSpaces { ($[\t ]+ "=" $[\t ]*) | ("=" $[\t ]*) }
+
+
+
   // Directives and Keywords
   MidiKeyword { "%%MIDI" }
   DirectiveKeyword { "%%" ![ \t%\n]+ }
-  VoiceKey { "V:" }
-  KeyKey { "K:" }
-  TimeSignatureKey { "M:" }
 
   None { "none" }
   CommonTimeSignatures{ None | "4/4" | "3/4" | "2/4" | "6/8" | "12/8" | "2/2" | "C" | "C|"}
@@ -163,24 +165,21 @@ DirectiveLine {
 
   BarComponent { "|" | ":" | "[" | "]" }
   
-  // Matches a double quote, followed by anything that ISN'T a newline or quote, ending with a quote.
+  // Matches a double quote, followed by anything that ISN'T a Newline or quote, ending with a quote.
   Annotation { '"' ![\n"]* '"' }
 
   // Duration
   Duration { "<" | ">" | "-" | "(" | ")" | ".(" |  ":" | "{" | "}" | "(" $[\t ]* @digit+  | 
             ( @digit + ) | ( "/" + @digit* ) | ( @digit+ "/" @digit* )}
   
-  Ornament{ "~" | "." | "u" | "v" }
+    // Decorations
+  SymbolDecoration { "." | "~" | "u" | "v" | "H" | "L" | "M" | "S" | "T" }
+  NamedDecoration { "!" ![\n!]+ "!" | "+" ![\n+]+ "+" }
 
   // Complex Note
   ComplexNote {
     ( ("^" "^"? | "_" "_"? | "=") $[A-Ga-g] ("'" | ",")* ) | 
     ( $[A-Ga-g] ("'" | ",")+ ) 
-  }
-
-  //Compex Note together (e.g. C,,E,, etc). Not spaced.
-  ComplexNoteTogether {
-    ComplexNote (ComplexNote)+
   }
 
   // Word (2+ chars)
@@ -202,33 +201,24 @@ DirectiveLine {
   SingleChar { @asciiLetter }
 
   Slash { "/"}
-  
-  Space { $[\t ]+ }
 
-  equalsWithSpaces { ($[\t ]+ "=" $[\t ]*) | ("=" $[\t ]*) }
 
   //MIDI
   MidiNumber { ("+" | "-")? @digit+ }
   DrumStrike { "d" }
 
   DirectiveArgs { ![\s%\n=] ![%\n]* }
-  CommentedDirective { "%%%" ![\n]* }
   InlineComment { "%" ![\n]* }
   Comment { "%" ![\n]* }
   Other { ![\n]+ } //  THis 
   
   @precedence { 
-    equalsWithSpaces,
-    CommentedDirective,
+    EqualsWithSpaces,
     MidiKeyword,
     DirectiveKeyword, 
-    VoiceKey,
-    KeyKey,
-    TimeSignatureKey,
-    BarComponent,
-    CommonTimeSignatures,
     Annotation,
-    Ornament,
+    SymbolDecoration,
+    NamedDecoration,
     Duration,
     ComplexNote,
     Word,
@@ -237,6 +227,8 @@ DirectiveLine {
     Rest,
     Spacing,
     SingleChar,
+    BarComponent,
+    CommonTimeSignatures,
     Slash,
     Sharp,
     MidiNumber,

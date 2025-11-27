@@ -56,8 +56,6 @@ function abcCompletions(context: CompletionContext) {
   const lineText = context.state.doc.sliceString(line.from, context.pos)
 
   // 2. FIX: Handle the case where we are strictly after "%%MIDI " (with space)
-  // In this case, 'word' is usually null because regex doesn't match space, 
-  // but we want to trigger completion.
   if (!word && /^%%MIDI\s+$/.test(lineText)) {
     word = { from: context.pos, to: context.pos, text: "" }
   }
@@ -67,19 +65,23 @@ function abcCompletions(context: CompletionContext) {
     word = { from: context.pos, to: context.pos, text: "" }
   }
 
+  // 4. FIX: Handle Voice (V:) or Key (K:) lines ending in space
+  // This detects "V:ID " or "K:C ". 
+  // The [VK] matches either V or K.
+  // The .* ensures we have content (like a voice ID or Key Tonic) before the space.
+  if (!word && /^[VK]:.*\s+$/.test(lineText)) {
+    word = { from: context.pos, to: context.pos, text: "" }
+  }
+
   if (!word) return null
 
   // ----------------------------------------------------------------
   // EXCLUSIVE GUARD: MIDI LINE
-  // If the line starts with %%MIDI, we ONLY check for MIDI attributes.
-  // We do NOT fall through to general directives.
   // ----------------------------------------------------------------
   if (/^%%MIDI\b/.test(lineText)) {
-    // Check text BEFORE current word to see if we're in the attribute slot
     const textBeforeWord = context.state.doc.sliceString(line.from, word.from)
     const isMidiAttributeSlot = /^%%MIDI\s*$/.test(textBeforeWord)
 
-    // Show suggestions if: right after %%MIDI with space, OR currently typing a word
     if (isMidiAttributeSlot || (word.text.match(/^\w*$/) && /^%%MIDI\s+/.test(lineText))) {
       return {
         from: word.from,
@@ -90,7 +92,6 @@ function abcCompletions(context: CompletionContext) {
         }))
       }
     }
-    // Explicitly return NULL to prevent falling through to generic directives
     return null
   }
 
@@ -98,8 +99,6 @@ function abcCompletions(context: CompletionContext) {
   // EXCLUSIVE GUARD: METER LINE (M:)
   // ----------------------------------------------------------------
   if (/^M:\s*/.test(lineText)) {
-    // Allow matching slashes and pipes for time signatures (e.g. 4/4, C|)
-    // We try to match a fuller word than the default regex
     const timeSigMatch = context.matchBefore(/[\w\/|]+/)
     const effectiveWord = timeSigMatch || word
 
@@ -113,22 +112,18 @@ function abcCompletions(context: CompletionContext) {
     }
   }
 
-  const isInComment = /^%(?!%)/.test(lineText)  // Line starts with % but not %%
-  const isInVoiceLine = /^V:\s*\S/.test(lineText)  // V: or V:X (with or without space)
-  const isInKeyLine = /^K:\s*\S/.test(lineText)    // K: or K:C (with or without space)
+  const isInComment = /^%(?!%)/.test(lineText) 
+  // Requires non-whitespace content (\S) to exist after header
+  const isInVoiceLine = /^V:\s*\S/.test(lineText)  
+  const isInKeyLine = /^K:\s*\S/.test(lineText)    
   const isInAnyInfoLine = /^[A-Za-z]:\s+/.test(lineText)
-  const lineStartsWithDirective = /^%%/.test(lineText)  // Line starts with directive
+  const lineStartsWithDirective = /^%%/.test(lineText)
 
-  // Don't suggest anything in comments
   if (isInComment) return null
 
-  // Complete directives starting with %% (only if not already in an info line)
-  // Match if currently typing a directive (%%word) or just typed %%
+  // Complete directives starting with %%
   if (word.text.startsWith("%%") && !isInAnyInfoLine) {
-    // Extract what's been typed after %%
     const partialDirective = word.text.slice(2).toLowerCase()
-
-    // Filter directives that match what's been typed so far
     const matchingDirectives = Array.from(allDirectives).filter(d =>
       d.toLowerCase().startsWith(partialDirective)
     )
@@ -143,8 +138,9 @@ function abcCompletions(context: CompletionContext) {
     }
   }
 
-  // If in a V: line, suggest voice attributes instead of info keys
-  if (isInVoiceLine && word.text.match(/^\w+$/)) {
+  // If in a V: line, suggest voice attributes
+  // Check for empty word (cursor after space) OR currently typing identifier
+  if (isInVoiceLine && (word.text.match(/^\w+$/) || word.text === "")) {
     return {
       from: word.from,
       options: voiceAttributes.map(attr => ({
@@ -156,7 +152,8 @@ function abcCompletions(context: CompletionContext) {
   }
 
   // If in a K: line, suggest key attributes
-  if (isInKeyLine && word.text.match(/^\w+$/)) {
+  // Check for empty word (cursor after space) OR currently typing identifier
+  if (isInKeyLine && (word.text.match(/^\w+$/) || word.text === "")) {
     return {
       from: word.from,
       options: keyAttributes.map(attr => ({
@@ -167,7 +164,7 @@ function abcCompletions(context: CompletionContext) {
     }
   }
 
-  // Complete info keys ONLY at start of line (not if already in an info line or directive line)
+  // Complete info keys ONLY at start of line
   if (word.text.match(/^[A-Za-z]:?$/) && !isInAnyInfoLine && !lineStartsWithDirective) {
     return {
       from: word.from,
@@ -179,19 +176,17 @@ function abcCompletions(context: CompletionContext) {
     }
   }
 
-  // Complete voice/key attribute values dynamically
-  // Check if word matches any attribute with "=" (e.g., "clef=", "stem=", "name=")
+  // Complete voice/key attribute values (e.g. clef=treble)
+  // This handles the specific values AFTER the equals sign
   const attrMatch = word.text.match(/^(\w+)=/)
   if (attrMatch && (isInVoiceLine || isInKeyLine)) {
     const attrName = attrMatch[1]
 
-    // Look for attribute in voice or key attributes depending on line type
     const config = isInVoiceLine
       ? voiceAttributes.find(attr => attr.attribute === attrName)
       : keyAttributes.find(attr => attr.attribute === attrName)
 
     if (config && config.validValues) {
-      // Generate completions for attributes with predefined valid values
       return {
         from: word.from,
         options: config.validValues.map(value => ({
@@ -395,7 +390,8 @@ function generateStyleTags() {
     SimpleNoteLower: t.content, // Simple notes (a, b, c)
     Annotation: t.string,
     Duration: t.number,  // Elements related to time modifications
-    Ornament: t.keyword,
+    SymbolDecoration: t.comment,
+    NamedDecoration: t.comment,
     Other: t.comment,
 
     // [Defaults]
