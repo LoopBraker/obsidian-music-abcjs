@@ -93,8 +93,26 @@ export class BarVisualizer {
         // We avoid [ and ] because they are used for chords and inline fields.
         const barSeparator = /\||::/;
 
-        let start = beforeCursor.lastIndexOf('|');
-        if (lastNewline > start) start = lastNewline;
+        const lastPipe = beforeCursor.lastIndexOf('|');
+        const lastDoubleColon = beforeCursor.lastIndexOf('::');
+
+        let start = -1;
+        let delimiterLength = 1; // Default to 1 (effectively 0 offset if start is -1)
+
+        if (lastPipe > -1 || lastDoubleColon > -1) {
+            if (lastPipe > lastDoubleColon) {
+                start = lastPipe;
+                delimiterLength = 1;
+            } else {
+                start = lastDoubleColon;
+                delimiterLength = 2;
+            }
+        }
+
+        if (lastNewline > start) {
+            start = lastNewline;
+            delimiterLength = 1;
+        }
 
         let end = afterCursor.search(barSeparator);
 
@@ -102,7 +120,7 @@ export class BarVisualizer {
         if (nextNewline !== -1 && nextNewline < end) end = nextNewline;
 
         // Adjust start to skip the delimiter itself
-        const barContent = (beforeCursor.substring(start + 1) + afterCursor.substring(0, end)).trim();
+        const barContent = (beforeCursor.substring(start + delimiterLength) + afterCursor.substring(0, end)).trim();
         return barContent;
     }
 
