@@ -104,6 +104,24 @@ export default class MusicPlugin extends Plugin {
 				return false;
 			}
 		});
+
+		// Register scale degree commands (1-7)
+		for (let i = 1; i <= 7; i++) {
+			this.addCommand({
+				id: `abc-set-degree-${i}`,
+				name: `ABC: Set pitch to degree ${i}`,
+				checkCallback: (checking: boolean) => {
+					const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+					if (view) {
+						if (!checking) {
+							view.setSelectionToDegree(i);
+						}
+						return true;
+					}
+					return false;
+				}
+			});
+		}
 	}
 
 	onunload() {

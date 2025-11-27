@@ -11,7 +11,7 @@ import { solarizedLight } from 'cm6-theme-solarized-light';
 import { solarizedDark } from 'cm6-theme-solarized-dark';
 import { abc } from './src/abc-lang';
 import { BarVisualizer } from './src/bar_visualizer';
-import { transposeABC } from './src/transposer';
+import { transposeABC, setSelectionToDegreeABC } from './src/transposer';
 
 export const ABC_EDITOR_VIEW_TYPE = 'abc-music-editor';
 
@@ -565,6 +565,81 @@ export class AbcEditorView extends ItemView {
       return {
         changes: { from: range.from, to: range.to, insert: transposedText },
         range: EditorSelection.range(range.from, range.from + transposedText.length)
+      };
+    });
+
+    this.editorView.dispatch(state.update(changes, { scrollIntoView: true }));
+  }
+
+  setSelectionToDegree(degree: number): void {
+    if (!this.editorView) return;
+
+    const state = this.editorView.state;
+    const doc = state.doc;
+
+    const changes = state.changeByRange((range) => {
+      if (range.empty) return { range };
+
+      // Find Key Signature
+      // Scan backwards from range.from
+      let keySignature = 'C'; // Default
+
+      // We scan line by line backwards
+      let lineNum = doc.lineAt(range.from).number;
+
+      // Optimization: Limit scan to reasonable number of lines? 
+      // Or just scan until start of doc. ABC files aren't usually massive.
+      // But we should stop if we hit another tune (X:)?
+      // Actually, K: applies until next K: or end of tune.
+      // So we scan backwards for K:
+
+      for (let i = lineNum; i >= 1; i--) {
+        const lineText = doc.line(i).text;
+        const kMatch = lineText.match(/^K:(.*)/);
+        if (kMatch) {
+          keySignature = kMatch[1].trim();
+          break;
+        }
+
+        // Also check inline [K:...]
+        // This is harder because there might be multiple on a line.
+        // We need the one closest to (before) our position.
+        // If we are on the same line (i == lineNum), we check before range.from.
+        // If on previous lines, we check the last one on that line.
+
+        const inlineMatches = Array.from(lineText.matchAll(/\[K:(.*?)\]/g));
+        if (inlineMatches.length > 0) {
+          // If this is the current line, filter matches before cursor
+          if (i === lineNum) {
+            const validMatches = inlineMatches.filter(m => m.index! < range.from);
+            if (validMatches.length > 0) {
+              keySignature = validMatches[validMatches.length - 1][1].trim();
+              break;
+            }
+          } else {
+            // Previous line, take the last one
+            keySignature = inlineMatches[inlineMatches.length - 1][1].trim();
+            break;
+          }
+        }
+
+        // If we hit X: (start of tune), and haven't found K yet, maybe we stop?
+        // But K usually comes after X.
+        // If we go past X, we might be in previous tune.
+        if (lineText.startsWith('X:')) {
+          // We probably shouldn't look before X: of the current tune.
+          // But how do we know if we are inside a tune?
+          // Assuming standard ABC.
+          break;
+        }
+      }
+
+      const selectedText = state.sliceDoc(range.from, range.to);
+      const newText = setSelectionToDegreeABC(selectedText, degree, keySignature);
+
+      return {
+        changes: { from: range.from, to: range.to, insert: newText },
+        range: EditorSelection.range(range.from, range.from + newText.length)
       };
     });
 

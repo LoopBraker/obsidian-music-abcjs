@@ -267,3 +267,172 @@ function processUnprotectedText(text: string, semitones: number): string {
         return transposeNote(match, semitones);
     });
 }
+
+// --- Scale Degree Logic ---
+
+const MAJOR_SCALE_INTERVALS = [0, 2, 4, 5, 7, 9, 11];
+const MINOR_SCALE_INTERVALS = [0, 2, 3, 5, 7, 8, 10]; // Natural Minor
+
+/**
+ * Parses a key signature string (e.g. "C", "Cm", "F#major")
+ */
+export function parseKey(keyStr: string): { root: string, mode: 'major' | 'minor' } {
+    keyStr = keyStr.trim();
+
+    // Match root (A-G + optional accidentals) and mode
+    // Modes: m, min, minor (minor); maj, major, or nothing (major)
+    // Also Mixolydian etc? User only asked for Major/Minor.
+
+    const match = keyStr.match(/^([A-G][#b]?)(.*)$/i);
+    if (!match) return { root: 'C', mode: 'major' };
+
+    const root = match[1]; // e.g. C, Eb, F#
+    const suffix = match[2].trim().toLowerCase();
+
+    let mode: 'major' | 'minor' = 'major';
+    if (['m', 'min', 'minor'].includes(suffix)) {
+        mode = 'minor';
+    }
+
+    return { root, mode };
+}
+
+/**
+ * Gets the target note name (e.g. "^F") for a given degree in a key.
+ * Degree is 1-based (1-7).
+ */
+function getScaleNote(root: string, mode: 'major' | 'minor', degree: number): string {
+    // 1. Get root value
+    // We need to handle root accidentals properly.
+    // NOTE_VALUES has C, D...
+    // We need a helper to get semitone value of a note string like "Eb" or "F#"
+    // But NOTE_VALUES keys are single chars.
+
+    // Let's parse root.
+    const rootBase = root[0].toUpperCase();
+    const rootAcc = root.slice(1);
+
+    let rootVal = NOTE_VALUES[rootBase];
+    if (rootAcc === '#') rootVal += 1;
+    if (rootAcc === 'b') rootVal -= 1;
+
+    // 2. Get interval for degree
+    const intervals = mode === 'major' ? MAJOR_SCALE_INTERVALS : MINOR_SCALE_INTERVALS;
+    const interval = intervals[(degree - 1) % 7];
+
+    // 3. Calculate target pitch class
+    let targetVal = (rootVal + interval) % 12;
+    if (targetVal < 0) targetVal += 12;
+
+    // 4. Convert to note string
+    // We need to choose the spelling.
+    // Ideally we respect the key signature.
+    // But for now, let's use our chromatic scale lookup.
+    // If Key is Flat, prefer flats. If Sharp, prefer sharps.
+
+    // 4. Convert to note string
+    // We need to choose the spelling.
+    // Ideally we respect the key signature.
+    // But for now, let's use our chromatic scale lookup.
+    // If Key is Flat, prefer flats. If Sharp, prefer sharps.
+
+    let isFlatKey = false;
+    if (root.includes('b')) {
+        isFlatKey = true;
+    } else if (root.includes('#')) {
+        isFlatKey = false;
+    } else {
+        // Natural roots
+        if (mode === 'major') {
+            // F Major has Bb. Others (C, G, D, A, E, B) use sharps.
+            if (root === 'F') isFlatKey = true;
+        } else {
+            // Minor keys
+            // d (1b), g (2b), c (3b), f (4b) use flats.
+            // a (0), e (1#), b (2#) use sharps.
+            if (['D', 'G', 'C', 'F'].includes(root)) isFlatKey = true;
+        }
+    }
+
+    const scale = isFlatKey ? CHROMATIC_SCALE_FLAT : CHROMATIC_SCALE_SHARP;
+
+    return scale[targetVal];
+}
+
+/**
+ * Sets a note to a specific scale degree.
+ * Preserves the original octave range (C vs c vs c').
+ */
+export function setNoteToDegree(noteToken: string, degree: number, keySignature: string): string {
+    // 1. Parse the note to get its octave component
+    const match = noteToken.match(/^([\^=_]*)([A-Ga-g])([,']*)$/);
+    if (!match) return noteToken;
+
+    const [, , baseNote, octaveStr] = match;
+
+    // 2. Determine target note name (e.g. "^F")
+    const { root, mode } = parseKey(keySignature);
+    const targetNoteName = getScaleNote(root, mode, degree); // e.g. "^F" or "G"
+
+    // 3. Reconstruct with original octave
+    // We need to handle the case where the base note case changes.
+    // e.g. original was "c" (octave 1), target is "B" (octave 0).
+    // "Same octave range" -> If I was in "c" range, I stay in "c" range?
+    // User said: "change that note for the corresponding note... in that same octav range".
+    // If I have "c" (middle C+1), and I select degree 7 (B).
+    // Should it be "b" (next to c) or "B" (below c)?
+    // Usually "c" range is c..b.
+    // So if I replace "c" with "b", it becomes "b".
+    // If I replace "c" with "C", it becomes "C" (which is an octave down).
+    // So we should match the case of the original note.
+
+    // targetNoteName comes from our scale which is Uppercase (C, ^C).
+    // If original baseNote was lowercase, we lowercase the target.
+    // If original was uppercase, we keep uppercase.
+
+    let finalBase = targetNoteName;
+    const isLowerCase = baseNote === baseNote.toLowerCase();
+
+    // Parse targetNoteName into acc + base
+    // e.g. "^F" -> acc="^", base="F"
+    let targetAcc = "";
+    let targetBaseChar = targetNoteName;
+
+    if (targetNoteName.length > 1) {
+        targetAcc = targetNoteName.slice(0, targetNoteName.length - 1);
+        targetBaseChar = targetNoteName.slice(-1);
+    }
+
+    if (isLowerCase) {
+        targetBaseChar = targetBaseChar.toLowerCase();
+    }
+
+    return `${targetAcc}${targetBaseChar}${octaveStr}`;
+}
+
+/**
+ * Sets selected text to a scale degree.
+ */
+export function setSelectionToDegreeABC(input: string, degree: number, keySignature: string): string {
+    // Reuse the protection logic
+    const protectedRegex = /(".*?")|(!.+?!)|(\[[A-Za-z]:.*?\])|(%.*$)/gm;
+
+    let result = '';
+    let lastIndex = 0;
+    let match;
+
+    while ((match = protectedRegex.exec(input)) !== null) {
+        const index = match.index;
+        const protectedText = match[0];
+
+        const prefix = input.slice(lastIndex, index);
+        result += prefix.replace(/([\^=_]*[A-Ga-g][,']*)/g, (m) => setNoteToDegree(m, degree, keySignature));
+
+        result += protectedText;
+        lastIndex = index + protectedText.length;
+    }
+
+    result += input.slice(lastIndex).replace(/([\^=_]*[A-Ga-g][,']*)/g, (m) => setNoteToDegree(m, degree, keySignature));
+
+    return result;
+}
