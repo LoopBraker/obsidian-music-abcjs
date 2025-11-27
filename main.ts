@@ -35,7 +35,7 @@ export default class MusicPlugin extends Plugin {
 		unusedPlaybackControls.id = PLAYBACK_CONTROLS_ID;
 		unusedPlaybackControls.style.display = 'none';
 		document.body.appendChild(unusedPlaybackControls);
-		
+
 		// Close any leftover ABC editor views from previous session
 		// This ensures a clean state when Obsidian loads
 		this.app.workspace.onLayoutReady(() => {
@@ -47,7 +47,7 @@ export default class MusicPlugin extends Plugin {
 
 	onunload() {
 		document.getElementById(PLAYBACK_CONTROLS_ID).remove();
-		
+
 		// Detach all ABC editor views
 		this.app.workspace.detachLeavesOfType(ABC_EDITOR_VIEW_TYPE);
 	}
@@ -66,6 +66,15 @@ export default class MusicPlugin extends Plugin {
 			const view = leaf.view;
 			if (view instanceof AbcEditorView) {
 				view.refreshTheme();
+			}
+		});
+	}
+
+	refreshVisualizer() {
+		this.app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE).forEach(leaf => {
+			const view = leaf.view;
+			if (view instanceof AbcEditorView) {
+				view.refreshVisualizer();
 			}
 		});
 	}

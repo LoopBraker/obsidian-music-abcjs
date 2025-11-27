@@ -112,10 +112,10 @@ function abcCompletions(context: CompletionContext) {
     }
   }
 
-  const isInComment = /^%(?!%)/.test(lineText) 
+  const isInComment = /^%(?!%)/.test(lineText)
   // Requires non-whitespace content (\S) to exist after header
-  const isInVoiceLine = /^V:\s*\S/.test(lineText)  
-  const isInKeyLine = /^K:\s*\S/.test(lineText)    
+  const isInVoiceLine = /^V:\s*\S/.test(lineText)
+  const isInKeyLine = /^K:\s*\S/.test(lineText)
   const isInAnyInfoLine = /^[A-Za-z]:\s+/.test(lineText)
   const lineStartsWithDirective = /^%%/.test(lineText)
 
@@ -165,7 +165,11 @@ function abcCompletions(context: CompletionContext) {
   }
 
   // Complete info keys ONLY at start of line
-  if (word.text.match(/^[A-Za-z]:?$/) && !isInAnyInfoLine && !lineStartsWithDirective) {
+  const textBeforeWord = context.state.doc.sliceString(line.from, word.from)
+  const isAtStartOfLine = /^\s*$/.test(textBeforeWord)
+  const isInlineField = /\[$/.test(textBeforeWord)
+
+  if (word.text.match(/^[A-Za-z]:?$/) && !isInAnyInfoLine && !lineStartsWithDirective && (isAtStartOfLine || isInlineField)) {
     return {
       from: word.from,
       options: Array.from(validInfoKeys).map(k => ({

@@ -60,6 +60,7 @@
   box-shadow: 0 0 0 1px var(--background-modifier-success), inset 0 0 0 1px var(--background-modifier-success) !important;
   border-radius: var(--radius-s);
 }
+
 /* .cm-embed-block:focus-within {
   box-shadow: 0 0 0 1px var(--color-blue), inset 0 0 0 1px var(--color-blue) !important;
   border-radius: var(--radius-s);
@@ -162,7 +163,8 @@
 /* Editor container and textarea */
 .abcjs-editor-container {
   margin: 12px 8px;
-  margin-bottom: 60px; /* Extra bottom margin to clear absolute positioned controls */
+  margin-bottom: 60px;
+  /* Extra bottom margin to clear absolute positioned controls */
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background-color: var(--background-primary);

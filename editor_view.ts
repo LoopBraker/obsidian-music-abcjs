@@ -10,6 +10,7 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { solarizedLight } from 'cm6-theme-solarized-light';
 import { solarizedDark } from 'cm6-theme-solarized-dark';
 import { abc } from './src/abc-lang';
+import { BarVisualizer } from './src/bar_visualizer';
 
 export const ABC_EDITOR_VIEW_TYPE = 'abc-music-editor';
 
@@ -81,6 +82,7 @@ export class AbcEditorView extends ItemView {
   private updateTimeout: NodeJS.Timeout | null = null;
   private editorContainer: HTMLElement | null = null;
   private currentTheme: any = oneDark;
+  private barVisualizer: BarVisualizer | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -106,7 +108,7 @@ export class AbcEditorView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
-    const container = this.containerEl.children[1];
+    const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
     container.addClass('abc-editor-view');
 
@@ -114,6 +116,13 @@ export class AbcEditorView extends ItemView {
 
     const header = container.createDiv({ cls: 'abc-editor-view-header' });
     header.createEl('h4', { text: 'ABC Music Code Editor' });
+
+    // Initialize Bar Visualizer if enabled
+    const app = (this.app as any);
+    const plugin = app.plugins?.plugins?.['music-code-blocks'];
+    if (plugin?.settings?.showBarVisualizer) {
+      this.barVisualizer = new BarVisualizer(container);
+    }
 
     this.editorContainer = container.createDiv({ cls: 'abc-codemirror-container' });
 
@@ -155,7 +164,11 @@ export class AbcEditorView extends ItemView {
             if (update.docChanged) {
               if (this.updateTimeout) clearTimeout(this.updateTimeout);
               this.updateTimeout = setTimeout(() => {
-                if (this.onChange) this.onChange(update.state.doc.toString());
+                const content = update.state.doc.toString();
+                if (this.onChange) this.onChange(content);
+                // Update visualizer
+                const cursor = update.state.selection.main.head;
+                if (this.barVisualizer) this.barVisualizer.update(content, cursor);
               }, 300);
             }
             if (update.selectionSet && this.onSelectionChange) {
@@ -167,6 +180,12 @@ export class AbcEditorView extends ItemView {
                 end = start + 1;
               }
               this.onSelectionChange(start, end);
+
+              // Update visualizer on selection change
+              if (this.barVisualizer && this.editorView) {
+                const content = this.editorView.state.doc.toString();
+                this.barVisualizer.update(content, update.state.selection.main.head);
+              }
             }
           }),
           EditorView.theme({
@@ -370,6 +389,46 @@ export class AbcEditorView extends ItemView {
     }
   }
 
+  refreshVisualizer(): void {
+    const app = (this.app as any);
+    const plugin = app.plugins?.plugins?.['music-code-blocks'];
+    const show = plugin?.settings?.showBarVisualizer;
+
+    if (show && !this.barVisualizer) {
+      // Enable
+      const container = this.containerEl.children[1] as HTMLElement;
+      this.barVisualizer = new BarVisualizer(container);
+
+      // Move visualizer to top if needed, or just ensure it's there.
+      // The container has header, visualizer (if added), editorContainer.
+      // We want visualizer after header.
+      // Current structure: header, editorContainer.
+      // BarVisualizer appends to container.
+      // We should insert it before editorContainer.
+
+      // Actually BarVisualizer constructor does: parent.createDiv(...) which appends.
+      // We need to move it.
+      if (this.barVisualizer['container'] && this.editorContainer) {
+        container.insertBefore(this.barVisualizer['container'], this.editorContainer);
+      }
+
+      // Update with current content
+      if (this.editorView) {
+        const content = this.editorView.state.doc.toString();
+        const cursor = this.editorView.state.selection.main.head;
+        this.barVisualizer.update(content, cursor);
+      }
+
+    } else if (!show && this.barVisualizer) {
+      // Disable
+      // We need a destroy method on BarVisualizer or just remove the element
+      if (this.barVisualizer['container']) {
+        this.barVisualizer['container'].remove();
+      }
+      this.barVisualizer = null;
+    }
+  }
+
   private createEditorWithTheme(content: string, selection?: any): void {
     if (!this.editorContainer) return;
 
@@ -410,12 +469,22 @@ export class AbcEditorView extends ItemView {
             if (update.docChanged) {
               if (this.updateTimeout) clearTimeout(this.updateTimeout);
               this.updateTimeout = setTimeout(() => {
-                if (this.onChange) this.onChange(update.state.doc.toString());
+                const content = update.state.doc.toString();
+                if (this.onChange) this.onChange(content);
+                // Update visualizer
+                const cursor = update.state.selection.main.head;
+                if (this.barVisualizer) this.barVisualizer.update(content, cursor);
               }, 300);
             }
             if (update.selectionSet && this.onSelectionChange) {
               const selection = update.state.selection.main;
               this.onSelectionChange(selection.from, selection.to);
+
+              // Update visualizer on selection change
+              if (this.barVisualizer && this.editorView) {
+                const content = this.editorView.state.doc.toString();
+                this.barVisualizer.update(content, update.state.selection.main.head);
+              }
             }
           }),
           EditorView.theme({

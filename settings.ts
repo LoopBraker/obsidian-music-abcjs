@@ -24,7 +24,7 @@ class FolderSuggest {
   private getAllFolders(): string[] {
     const folders: string[] = [];
     const rootFolder = this.app.vault.getRoot();
-    
+
     const collectFolders = (folder: TFolder) => {
       for (const child of folder.children) {
         if (child instanceof TFolder) {
@@ -33,7 +33,7 @@ class FolderSuggest {
         }
       }
     };
-    
+
     collectFolders(rootFolder);
     return folders;
   }
@@ -41,9 +41,9 @@ class FolderSuggest {
   private updateSuggestions(): void {
     const inputValue = this.inputEl.value.toLowerCase();
     const allFolders = this.getAllFolders();
-    
+
     // Filter folders based on input
-    const matchingFolders = allFolders.filter(folder => 
+    const matchingFolders = allFolders.filter(folder =>
       folder.toLowerCase().includes(inputValue)
     ).slice(0, 10); // Limit to 10 suggestions
 
@@ -62,11 +62,11 @@ class FolderSuggest {
 
     // Add suggestions
     for (const folder of matchingFolders) {
-      const suggestionEl = this.suggestEl.createDiv({ 
+      const suggestionEl = this.suggestEl.createDiv({
         cls: 'abc-folder-suggestion-item',
-        text: folder 
+        text: folder
       });
-      
+
       suggestionEl.addEventListener('mousedown', (e) => {
         e.preventDefault(); // Prevent input blur
         this.selectFolder(folder);
@@ -112,13 +112,15 @@ export interface MusicPluginSettings {
   templatesFolder: string;
   darkTheme: 'oneDark' | 'solarizedDark';
   lightTheme: 'solarizedLight';
+  showBarVisualizer: boolean;
 }
 
 export const DEFAULT_SETTINGS: MusicPluginSettings = {
   soundFont: 'MusyngKite',
   templatesFolder: '',
   darkTheme: 'oneDark',
-  lightTheme: 'solarizedLight'
+  lightTheme: 'solarizedLight',
+  showBarVisualizer: true
 };
 
 export const SOUND_FONT_DESCRIPTIONS = {
@@ -188,6 +190,17 @@ export class MusicSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
+      .setName('Show Bar Visualizer')
+      .setDesc('Show a visual representation of the current bar above the editor')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.showBarVisualizer)
+        .onChange(async (value) => {
+          this.plugin.settings.showBarVisualizer = value;
+          await this.plugin.saveSettings();
+          this.plugin.refreshVisualizer();
+        }));
+
+    new Setting(containerEl)
       .setName('Templates Folder')
       .setDesc('Folder containing ABC music templates (markdown files with music-abc code blocks)')
       .addText(text => {
@@ -198,7 +211,7 @@ export class MusicSettingTab extends PluginSettingTab {
             this.plugin.settings.templatesFolder = value;
             await this.plugin.saveSettings();
           });
-        
+
         // Add folder suggester
         this.folderSuggest = new FolderSuggest(
           this.app,
