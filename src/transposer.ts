@@ -415,7 +415,9 @@ export function setNoteToDegree(noteToken: string, degree: number, keySignature:
  */
 export function setSelectionToDegreeABC(input: string, degree: number, keySignature: string): string {
     // Reuse the protection logic
-    const protectedRegex = /(".*?")|(!.+?!)|(\[[A-Za-z]:.*?\])|(%.*$)/gm;
+    // FIX: For scale degree setting, we want to protect chords [CEG] as well as inline fields [K:C].
+    // So we protect all bracketed content.
+    const protectedRegex = /(".*?")|(!.+?!)|(\[.*?\])|(%.*$)/gm;
 
     let result = '';
     let lastIndex = 0;
