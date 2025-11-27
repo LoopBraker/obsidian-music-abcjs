@@ -202,9 +202,13 @@ export function transposeABC(input: string, semitones: number): string {
     // - Comment: %.*$ (multiline? no, usually single line)
     // - Decoration: !.*?!
     // - Inline field: \[.*?\] (e.g. [K:C]) - We don't want to transpose the 'C' in K:C blindly.
+    // FIX: Chords also use [], e.g. [CDEF]. We must NOT protect those.
+    // Inline fields start with a letter and a colon, e.g. [K:...] or [M:...] or [V:...]
+    // Also variant endings [1, [2.
+    // Let's protect [Letter:...] pattern.
 
     // Note: JS regex doesn't support atomic groups, so order matters.
-    const protectedRegex = /(".*?")|(!.+?!)|(\[.*?\])|(%.*$)/gm;
+    const protectedRegex = /(".*?")|(!.+?!)|(\[[A-Za-z]:.*?\])|(%.*$)/gm;
 
     // We will split the string by these protected blocks.
     // The split will return [text, protected1, protected2, ..., text, ...]

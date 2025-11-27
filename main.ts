@@ -74,6 +74,36 @@ export default class MusicPlugin extends Plugin {
 				return false;
 			}
 		});
+
+		this.addCommand({
+			id: 'abc-transpose-octave-up',
+			name: 'ABC: Raise pitch (octave)',
+			checkCallback: (checking: boolean) => {
+				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+				if (view) {
+					if (!checking) {
+						view.transposeSelection(12);
+					}
+					return true;
+				}
+				return false;
+			}
+		});
+
+		this.addCommand({
+			id: 'abc-transpose-octave-down',
+			name: 'ABC: Lower pitch (octave)',
+			checkCallback: (checking: boolean) => {
+				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+				if (view) {
+					if (!checking) {
+						view.transposeSelection(-12);
+					}
+					return true;
+				}
+				return false;
+			}
+		});
 	}
 
 	onunload() {
