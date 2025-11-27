@@ -11,6 +11,7 @@ import { solarizedLight } from 'cm6-theme-solarized-light';
 import { solarizedDark } from 'cm6-theme-solarized-dark';
 import { abc } from './src/abc-lang';
 import { BarVisualizer } from './src/bar_visualizer';
+import { transposeABC } from './src/transposer';
 
 export const ABC_EDITOR_VIEW_TYPE = 'abc-music-editor';
 
@@ -542,5 +543,31 @@ export class AbcEditorView extends ItemView {
     if (effects.length > 0) {
       this.editorView.dispatch({ effects });
     }
+  }
+
+  transposeSelection(semitones: number): void {
+    if (!this.editorView) return;
+
+    const state = this.editorView.state;
+    const changes = state.changeByRange((range) => {
+      if (range.empty) {
+        // If no selection, maybe transpose the note under cursor?
+        // For now, let's strictly follow "if a note or notes are selected".
+        // But user experience might be better if we expand to word?
+        // The request says "if a note or notes are selecteted".
+        // Let's stick to selection for now.
+        return { range };
+      }
+
+      const selectedText = state.sliceDoc(range.from, range.to);
+      const transposedText = transposeABC(selectedText, semitones);
+
+      return {
+        changes: { from: range.from, to: range.to, insert: transposedText },
+        range: EditorSelection.range(range.from, range.from + transposedText.length)
+      };
+    });
+
+    this.editorView.dispatch(state.update(changes, { scrollIntoView: true }));
   }
 }

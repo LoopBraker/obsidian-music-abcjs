@@ -43,6 +43,37 @@ export default class MusicPlugin extends Plugin {
 			// Reset global state
 			globalAbcState.reset();
 		});
+
+		// Register commands
+		this.addCommand({
+			id: 'abc-transpose-up',
+			name: 'ABC: Raise pitch (semitone)',
+			checkCallback: (checking: boolean) => {
+				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+				if (view) {
+					if (!checking) {
+						view.transposeSelection(1);
+					}
+					return true;
+				}
+				return false;
+			}
+		});
+
+		this.addCommand({
+			id: 'abc-transpose-down',
+			name: 'ABC: Lower pitch (semitone)',
+			checkCallback: (checking: boolean) => {
+				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+				if (view) {
+					if (!checking) {
+						view.transposeSelection(-1);
+					}
+					return true;
+				}
+				return false;
+			}
+		});
 	}
 
 	onunload() {
