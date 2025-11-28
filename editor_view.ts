@@ -225,15 +225,18 @@ export class AbcEditorView extends ItemView {
   }
 
   async onClose(): Promise<void> {
-    if (this.updateTimeout) {
-      clearTimeout(this.updateTimeout);
-    }
-    if (this.editorView) {
-      this.editorView.destroy();
-      this.editorView = null;
-    }
-    this.onChange = null;
-    this.onSelectionChange = null;
+      // 1. Remove the global event listener
+      window.removeEventListener('beforeunload', this.handleBeforeUnload);
+
+      if (this.updateTimeout) {
+        clearTimeout(this.updateTimeout);
+      }
+      if (this.editorView) {
+        this.editorView.destroy();
+        this.editorView = null;
+      }
+      this.onChange = null;
+      this.onSelectionChange = null;
   }
 
   setContent(

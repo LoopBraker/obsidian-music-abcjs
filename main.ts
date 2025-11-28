@@ -39,7 +39,6 @@ export default class MusicPlugin extends Plugin {
 		// Close any leftover ABC editor views from previous session
 		// This ensures a clean state when Obsidian loads
 		this.app.workspace.onLayoutReady(() => {
-			this.app.workspace.detachLeavesOfType(ABC_EDITOR_VIEW_TYPE);
 			// Reset global state
 			globalAbcState.reset();
 		});
@@ -127,8 +126,6 @@ export default class MusicPlugin extends Plugin {
 	onunload() {
 		document.getElementById(PLAYBACK_CONTROLS_ID).remove();
 
-		// Detach all ABC editor views
-		this.app.workspace.detachLeavesOfType(ABC_EDITOR_VIEW_TYPE);
 	}
 
 	async loadSettings() {
