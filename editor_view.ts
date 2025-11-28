@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Notice } from 'obsidian';
+import { ItemView, WorkspaceLeaf } from 'obsidian';
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, rectangularSelection, crosshairCursor, highlightActiveLine } from '@codemirror/view';
 import { EditorState, EditorSelection } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -12,7 +12,6 @@ import { abc } from './src/abc-lang';
 import { BarVisualizer } from './src/bar_visualizer';
 import { ChordButtonBar } from './src/chord_button_bar';
 import { transposeABC, setSelectionToDegreeABC } from './src/transposer';
-
 
 export const ABC_EDITOR_VIEW_TYPE = 'abc-music-editor';
 
@@ -148,20 +147,26 @@ export class AbcEditorView extends ItemView {
                 }
 
                 if (this.updateTimeout) clearTimeout(this.updateTimeout);
+                // Wait 1 second after typing stops to save
                 this.updateTimeout = setTimeout(() => {
                     const content = update.state.doc.toString();
                     
-                    // Call onChange (live preview update)
+                    // 1. Update Live Preview (Playback)
                     if (this.onChange) this.onChange(content);
                     
-                    // Update visualizers
+                    // 2. AUTO-SAVE to disk (The Fix)
+                    // If the user typed, save it. Don't wait for close.
+                    if (this.isDirty && this.onSave && content.trim().length > 0) {
+                        this.onSave(content).catch(e => console.error("Auto-save failed:", e));
+                        // We keep isDirty = true until a proper save confirmation or just leave it
+                        // to ensure onClose also tries to save any split-second changes.
+                    }
+                    
+                    // 3. Update visualizers
                     const cursor = update.state.selection.main.head;
                     if (this.barVisualizer) this.barVisualizer.update(content, cursor);
                     if (this.chordButtonBar) this.chordButtonBar.update(content, cursor);
-                    
-                    // Optional: You could enable auto-save here if desired, 
-                    // but for safety, ensure onSave is defined.
-                }, 300);
+                }, 1000); // 1000ms debounce
             }
             if (update.selectionSet && this.onSelectionChange) {
                 const selection = update.state.selection.main;
@@ -188,13 +193,10 @@ export class AbcEditorView extends ItemView {
   }
 
   async onClose(): Promise<void> {
-    // SAFETY 1: Do not save if the user never touched the file (dirty is false)
-    // This handles the "reload -> open -> close immediately" loop where content is empty
+    // Save final changes on close
     if (this.isDirty && this.editorView && this.onSave) {
         const content = this.editorView.state.doc.toString();
-        
-        // SAFETY 2: Never save an empty string on close. 
-        // Prevents wiping file if something went catastrophic.
+        // Prevent wiping file with empty string
         if (content.trim().length > 0) {
             await this.onSave(content).catch(err => console.error("Save failed", err));
         }
@@ -247,9 +249,11 @@ export class AbcEditorView extends ItemView {
 
   updateCallbacks(
     onChange: (content: string) => void,
+    onSave: (content: string) => Promise<void>, // <--- Add this parameter
     onSelectionChange?: (startChar: number, endChar: number) => void
   ): void {
     this.onChange = onChange;
+    this.onSave = onSave; // <--- Update the property
     this.onSelectionChange = onSelectionChange || null;
   }
 
@@ -269,8 +273,7 @@ export class AbcEditorView extends ItemView {
     }, 50);
   }
 
-
-  // Template Parsing (Kept because Autocomplete uses it)
+  // Template Parsing
   private parseTemplateContent(content: string): string | null {
     const codeBlockRegex = /```music-abc\s*\n([\s\S]*?)```/;
     const match = content.match(codeBlockRegex);
@@ -281,10 +284,7 @@ export class AbcEditorView extends ItemView {
   private async templateCompletionSource(context: CompletionContext): Promise<CompletionResult | null> {
     const line = context.state.doc.lineAt(context.pos);
     const lineText = context.state.doc.sliceString(line.from, context.pos);
-
-    // Check if line starts with "temp" or "TEMP"
     const match = lineText.match(/^(temp|TEMP)/i);
-
     if (!match) return null;
 
     const app = (this.app as any);
@@ -299,7 +299,6 @@ export class AbcEditorView extends ItemView {
     );
 
     if (templateFiles.length === 0) return null;
-
     const word = context.matchBefore(/^(temp|TEMP).*$/i);
     if (!word) return null;
 
@@ -312,30 +311,20 @@ export class AbcEditorView extends ItemView {
         detail: 'Template',
         type: 'text',
         apply: async (view, completion, from, to) => {
-          // 1. Remove the trigger text "temp ..."
-          view.dispatch({
-            changes: { from, to, insert: "" }
-          });
-
-          // 2. Load and parse the template file
+          view.dispatch({ changes: { from, to, insert: "" } });
           try {
             const content = await this.app.vault.read(file);
             const templateContent = this.parseTemplateContent(content);
-
             if (templateContent) {
-              // 3. Insert the template content
               const insertPos = from;
               view.dispatch({
                 changes: { from: insertPos, insert: templateContent },
                 selection: EditorSelection.cursor(insertPos + templateContent.length)
               });
-
-              // Apply default folds to the newly inserted content
-              // (Wait 1 tick for DOM update to be safe, though dispatch is sync)
               setTimeout(() => this.applyInitialFolds(), 10);
             }
           } catch (err) {
-            console.error("Failed to load template for completion", err);
+            console.error("Failed to load template", err);
           }
         }
       })),
@@ -359,7 +348,6 @@ export class AbcEditorView extends ItemView {
     const newTheme = this.getTheme();
     if (newTheme !== this.currentTheme) {
       this.currentTheme = newTheme;
-      // We must preserve content and dirty state
       const content = this.editorView.state.doc.toString();
       const selection = this.editorView.state.selection;
       const wasDirty = this.isDirty;
@@ -367,14 +355,12 @@ export class AbcEditorView extends ItemView {
       this.editorView.destroy();
       this.createEditorWithTheme(content, selection);
       
-      this.isDirty = wasDirty; // Restore dirty state
-      
+      this.isDirty = wasDirty;
       if (this.chordButtonBar) this.chordButtonBar.refresh();
     }
   }
 
   refreshVisualizer(): void {
-      // (Keep your existing implementation or copy from previous)
       const app = this.app as any;
       const plugin = app.plugins?.plugins?.['music-code-blocks'];
       const show = plugin?.settings?.showBarVisualizer;
@@ -430,14 +416,22 @@ export class AbcEditorView extends ItemView {
           ]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
+              if (!this.isProgrammaticChange) this.isDirty = true;
+
               if (this.updateTimeout) clearTimeout(this.updateTimeout);
               this.updateTimeout = setTimeout(() => {
                 const content = update.state.doc.toString();
                 if (this.onChange) this.onChange(content);
+                
+                // AUTO-SAVE (Same logic as onOpen)
+                if (this.isDirty && this.onSave && content.trim().length > 0) {
+                     this.onSave(content).catch(e => console.error("Auto-save failed:", e));
+                }
+
                 const cursor = update.state.selection.main.head;
                 if (this.barVisualizer) this.barVisualizer.update(content, cursor);
                 if (this.chordButtonBar) this.chordButtonBar.update(content, cursor);
-              }, 300);
+              }, 1000); // 1s Debounce
             }
             if (update.selectionSet && this.onSelectionChange) {
               const selection = update.state.selection.main;

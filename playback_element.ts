@@ -6,12 +6,6 @@ import { NoteEditor } from './note_editor';
 import { AbcEditorView, ABC_EDITOR_VIEW_TYPE } from './editor_view';
 import { globalAbcState } from './global_state';
 
-/**
- * This class abstraction is needed to support load/unload hooks
- * 
- * "If your post processor requires lifecycle management, for example, to clear an interval, kill a subprocess, etc when this element is removed from the app..."
- * https://marcus.se.net/obsidian-plugin-docs/reference/typescript/interfaces/MarkdownPostProcessorContext#addchild
- */
 export class PlaybackElement extends MarkdownRenderChild {
   private playPauseButton: HTMLButtonElement;
   private draggingCheckbox: HTMLInputElement;
@@ -30,10 +24,6 @@ export class PlaybackElement extends MarkdownRenderChild {
   private readonly abortController = new AbortController();
   private readonly midiBuffer: MidiBuffer = new synth.CreateSynth();
 
-  // CHANGE: Removed the SynthController
-  // private readonly synthCtrl = new synth.SynthController();
-
-  // CHANGE: Add a direct reference to TimingCallbacks
   private timingCallbacks: TimingCallbacks | null = null;
 
   private visualObj: TuneObject | null = null;
@@ -46,30 +36,20 @@ export class PlaybackElement extends MarkdownRenderChild {
     private readonly markdownSource: string,
     private readonly ctx?: MarkdownPostProcessorContext,
   ) {
-    super(el); // important
+    super(el);
   }
 
   onload() {
     const { userOptions, source } = this.parseOptionsAndSource();
     this.noteEditor = new NoteEditor(source, this.ctx, this.el);
-    
-    // Check if %%allowDrag directive exists in source
     this.draggingEnabled = source.includes('%%allowDrag');
     
-    // 1. Create the wrapper
     this.sheetWrapper = document.createElement('div');
     this.sheetWrapper.addClass('abcjs-sheet-wrapper');
     
-    // 2. Add playback buttons first (they'll appear at the top)
     this.addPlaybackButtons();
-    
-    // 3. CRITICAL FIX: Append wrapper to DOM *BEFORE* rendering
-    // abcjs needs the element to be in the DOM to calculate width/height
-    // for generating selectable SVG paths (elemset). Rendering into a detached
-    // div (not yet appended) results in 0 width and empty elemset arrays.
     this.el.appendChild(this.sheetWrapper);
     
-    // 4. Now render into the attached wrapper
     const options = { 
       ...DEFAULT_OPTIONS, 
       ...userOptions,
@@ -80,90 +60,150 @@ export class PlaybackElement extends MarkdownRenderChild {
     const renderResp = renderAbc(this.sheetWrapper, source, options);
     this.visualObj = renderResp[0];
     
-    // Extract tune metrics and ensure timings are calculated
     if (this.visualObj) {
-      // Ensure timing information is calculated
       this.visualObj.setTiming();
-      
       this.beatsPerMeasure = this.visualObj.getBeatsPerMeasure();
       this.totalBeats = this.visualObj.getTotalBeats();
       this.totalMeasures = Math.ceil(this.totalBeats / this.beatsPerMeasure);
-      
-      console.log('Tune loaded with', this.visualObj.lines?.length, 'lines');
-      console.log('Total time:', this.visualObj.getTotalTime(), 'seconds');
-      console.log('Total measures:', this.totalMeasures);
     }
     
-    // 5. Add remaining controls (they'll appear at the bottom)
     this.addDraggingAndLoopToggles();
-    
     this.enableAudioPlayback(this.visualObj);
-    
-    // 6. Reconnect editor to this new live instance
-    // When a file is edited, Obsidian destroys the old PlaybackElement and creates a new one.
-    // The editor view still has callbacks pointing to the old (dead) instance, causing
-    // highlighting to fail. This ensures the editor always talks to the living instance.
     this.updateEditorCallbacks();
     
-    // 7. Check if we need to reopen the editor after a file write
+    // Check if we need to reopen the editor after a file write (reload)
     const preserve = globalAbcState.getPreserveEditor();
     const sourcePath = (this.ctx as any)?.sourcePath;
     const lineStart = this.ctx?.getSectionInfo(this.el)?.lineStart;
     
     if (preserve && preserve.path === sourcePath && preserve.lineStart === lineStart) {
-      // This block was just reloaded after removing %%allowDrag
-      // Reopen the editor programmatically
       globalAbcState.clearPreserveEditor();
       this.openEditorProgrammatically(preserve.source);
     }
   }
 
-  /**
-   * Stop the music and clean things up.
-   * 
-   * (Tested) Called when:
-   * 1. Cursor focus goes into the text area (which switches from preview to edit mode)
-   * 2. A tab containing this is closed (very important)
-   * 
-   * Not called when:
-   * 1. Switching tabs to a different one (audio keeps playing)
-   */
   async onunload() {
-    this.abortController.abort(); // dom event listeners
-
-    // CHANGE: Stop our own components directly
+    this.abortController.abort();
     this.timingCallbacks?.stop();
     this.midiBuffer.stop();
     
-    // Clear any pending save
     if (this.saveTimeout) {
       clearTimeout(this.saveTimeout);
       this.saveTimeout = null;
     }
     
-    // If this block has the editor open, save its content before unloading
     const app = (window as any).app as App;
     const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
-    if (leaves.length > 0 && globalAbcState.isActiveEditor(this)) {
-      const currentSource = this.noteEditor.getSource();
-      await this.updateFileWithSource(currentSource);
-    }
     
     // Clear this block from global state
     globalAbcState.clearBlock(this);
     
-    // Check if we should preserve the editor across this unload
+    // CRITICAL: Check if we are reloading because of a save we initiated
     const preserve = globalAbcState.getPreserveEditor();
     const sourcePath = (this.ctx as any)?.sourcePath;
     const lineStart = this.ctx?.getSectionInfo(this.el)?.lineStart;
+    
+    // Only close the editor if this is NOT a "preserve" reload
     const isPreserveForThis = preserve && preserve.path === sourcePath && preserve.lineStart === lineStart;
     
-    if (!isPreserveForThis && leaves.length > 0) {
-      // Normal unload - close the editor
-      leaves[0].detach();
+    if (!isPreserveForThis && leaves.length > 0 && globalAbcState.isActiveEditor(this)) {
+       leaves[0].detach();
     }
-    // else: We're being unloaded because of an intentional file write.
-    // Keep the editor open. The new instance will reattach to it in onload.
+  }
+
+  // --- HELPER TO HANDLE AUTO-SAVE WITHOUT CLOSING EDITOR ---
+  private async saveAndPreserve(newSource: string) {
+      const sourcePath = (this.ctx as any)?.sourcePath;
+      const sectionInfo = this.ctx?.getSectionInfo(this.el);
+      const lineStart = sectionInfo?.lineStart ?? -1;
+
+      // 1. Set the Flag: "I am about to reload the plugin, please keep editor open"
+      globalAbcState.setPreserveEditor({
+          path: sourcePath,
+          lineStart: lineStart,
+          source: newSource
+      });
+
+      // 2. Update Internal State
+      this.noteEditor.setSource(newSource);
+
+      // 3. Write to File (Triggers Reload)
+      await this.updateFileWithSource(newSource);
+  }
+
+  private readonly toggleEditor = async () => {
+    const app = (window as any).app as App;
+    const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+    
+    if (leaves.length > 0) {
+      // Closing manually -> Just save and close
+      const currentSource = this.noteEditor.getSource();
+      await this.updateFileWithSource(currentSource);
+      leaves[0].detach();
+      this.editorButton.style.backgroundColor = '';
+      this.editorButton.style.color = '';
+      globalAbcState.setActiveEditor(null);
+    } else {
+      if (this.draggingEnabled) {
+        this.draggingCheckbox.checked = false;
+        this.draggingEnabled = false;
+        globalAbcState.setActiveDragging(null);
+      }
+      
+      globalAbcState.setActiveEditor(this);
+      
+      const leaf = app.workspace.getRightLeaf(false);
+      await leaf.setViewState({ type: ABC_EDITOR_VIEW_TYPE, active: true });
+      
+      const leaves2 = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+      if (leaves2.length > 0) {
+        const view = leaves2[0].view as AbcEditorView;
+        let sourceToSet = this.noteEditor.getSource();
+        
+        view.setContent(
+          sourceToSet,
+          async (newSource: string) => {
+            // onChange (Preview Update)
+            this.noteEditor.setSource(newSource);
+            this.reRender();
+          },
+          async (newSource: string) => {
+            // onSave (Auto-Save from Editor)
+            await this.saveAndPreserve(newSource); 
+          },
+          (startChar: number, endChar: number) => {
+            this.highlightNotesInRange(startChar, endChar);
+          }
+        );
+        
+        app.workspace.revealLeaf(leaves2[0]);
+        this.editorButton.style.backgroundColor = 'var(--interactive-accent)';
+        this.editorButton.style.color = 'var(--text-on-accent)';
+      }
+    }
+  };
+
+  private updateEditorCallbacks(): void {
+    const app = (window as any).app as App;
+    const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+    
+    if (leaves.length > 0 && globalAbcState.isActiveEditor(this)) {
+      const view = leaves[0].view as AbcEditorView;
+      // Reattach callbacks to the existing view
+      view.updateCallbacks(
+        async (newSource: string) => {
+          this.noteEditor.setSource(newSource);
+          this.reRender();
+        },
+        async (newSource: string) => {
+            // onSave (Auto-Save from Editor - connected to NEW block instance)
+            await this.saveAndPreserve(newSource);
+        },
+        (startChar: number, endChar: number) => {
+          this.highlightNotesInRange(startChar, endChar);
+        }
+      );
+    }
   }
 
   parseOptionsAndSource(): { userOptions: Record<string, any>, source: string } {
@@ -397,110 +437,6 @@ export class PlaybackElement extends MarkdownRenderChild {
     console.log('Loop', this.loopEnabled ? 'enabled' : 'disabled');
   };
 
-  private readonly toggleEditor = async () => {
-    const app = (window as any).app as App;
-    
-    // Check if editor view is already open
-    const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
-    
-    if (leaves.length > 0) {
-      // Editor is open - save content before closing
-      const currentSource = this.noteEditor.getSource();
-      await this.updateFileWithSource(currentSource);
-      
-      leaves[0].detach();
-      
-      // Update button visual state
-      this.editorButton.style.backgroundColor = '';
-      this.editorButton.style.color = '';
-      
-      // Clear from global state
-      globalAbcState.setActiveEditor(null);
-    } else {
-      // Store whether we need to clean up dragging
-      const hadDraggingEnabled = this.draggingEnabled;
-      
-      // FIRST: If THIS block has dragging enabled, disable it synchronously (but don't save yet)
-      if (this.draggingEnabled) {
-        this.draggingCheckbox.checked = false;
-        this.draggingEnabled = false;
-        globalAbcState.setActiveDragging(null);
-      }
-      
-      // Register this block as having the active editor
-      // This will close any other editor that might be open
-      globalAbcState.setActiveEditor(this);
-      
-      // THEN: Open the editor
-      const leaf = app.workspace.getRightLeaf(false);
-      await leaf.setViewState({
-        type: ABC_EDITOR_VIEW_TYPE,
-        active: true,
-      });
-      
-      // Get the view and set content
-      const leaves2 = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
-      if (leaves2.length > 0) {
-        const view = leaves2[0].view as AbcEditorView;
-        
-        // If dragging was enabled, clean the source BEFORE setting content
-        let sourceToSet = this.noteEditor.getSource();
-        if (hadDraggingEnabled && sourceToSet.includes('%%allowDrag')) {
-          sourceToSet = sourceToSet.replace(/%%allowDrag\n?/g, '');
-          this.noteEditor.setSource(sourceToSet);
-        }
-        
-        view.setContent(
-          sourceToSet,
-          async (newSource: string) => {
-            // Update internal state and live preview
-            this.noteEditor.setSource(newSource);
-            this.reRender();
-          },
-          async (newSource: string) => {
-            // Save to file (called on editor close or reload)
-            this.noteEditor.setSource(newSource);
-            await this.updateFileWithSource(newSource);
-          },
-          (startChar: number, endChar: number) => {
-            // Selection in editor: highlight notes in sheet
-            this.highlightNotesInRange(startChar, endChar);
-          }
-        );
-        
-        // Reveal the leaf (bring it to front)
-        app.workspace.revealLeaf(leaves2[0]);
-        
-        // Update button visual state IMMEDIATELY
-        this.editorButton.style.backgroundColor = 'var(--interactive-accent)';
-        this.editorButton.style.color = 'var(--text-on-accent)';
-        
-        // If we had dragging enabled, we need to save the cleaned source to file
-        // Set preserve flag so the new instance reopens the editor after reload
-        if (hadDraggingEnabled) {
-          const sourcePath = (this.ctx as any).sourcePath;
-          const sectionInfo = this.ctx?.getSectionInfo(this.el);
-          const lineStart = sectionInfo?.lineStart ?? -1;
-          
-          // Tell global state to preserve the editor across the file write
-          globalAbcState.setPreserveEditor({
-            path: sourcePath,
-            lineStart: lineStart,
-            source: sourceToSet
-          });
-          
-          // Now save to file - this will cause Obsidian to reload the block
-          await this.updateFileWithSource(sourceToSet);
-          
-          // Set timeout fallback to clear flag if something goes wrong
-          setTimeout(() => {
-            globalAbcState.clearPreserveEditor();
-          }, 2000);
-        }
-      }
-    }
-  };
-
   private highlightNotesInRange(startChar: number, endChar: number): void {
     console.log('highlightNotesInRange called:', startChar, endChar);
     
@@ -543,34 +479,6 @@ export class PlaybackElement extends MarkdownRenderChild {
       }
     }
     console.log('Found elements:', foundElements, 'Highlighted SVG elements:', highlightedElements);
-  }
-
-  private updateEditorCallbacks(): void {
-    const app = (window as any).app as App;
-    const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
-    
-    if (leaves.length > 0) {
-      const view = leaves[0].view as AbcEditorView;
-      console.log('Updating editor callbacks after re-render');
-      // Update callbacks without touching content (preserves cursor position)
-      view.updateCallbacks(
-        async (newSource: string) => {
-          // 1. Update internal state
-          this.noteEditor.setSource(newSource);
-          
-          // 2. Visual update IMMEDIATELY
-          this.reRender();
-          
-          // 3. DO NOT save to file while editing - only save when editor closes
-          // This prevents constant reloads while typing
-        },
-        (startChar: number, endChar: number) => {
-          // Selection in editor: highlight notes in sheet
-          console.log('Selection callback triggered:', startChar, endChar);
-          this.highlightNotesInRange(startChar, endChar);
-        }
-      );
-    }
   }
 
   private readonly toggleDragging = async (saveToFile: boolean = true) => {
