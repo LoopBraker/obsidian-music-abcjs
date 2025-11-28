@@ -9,6 +9,7 @@ export class ChordButtonBar {
     private modifierContainer: HTMLElement;
     private currentKey: string = 'C';
     private currentExtension: 'triad' | '7' | '9' | '11' | '13' = 'triad';
+    private isAddMode: boolean = false;
 
     constructor(parent: HTMLElement, private editorViewGetter: () => EditorView | null) {
         this.container = parent.createDiv({ cls: 'abc-chord-button-bar-wrapper' });
@@ -135,9 +136,38 @@ export class ChordButtonBar {
 
             btn.addEventListener('click', () => {
                 this.currentExtension = ext;
+                // If switching to Triad or 7, disable Add mode
+                if (ext === 'triad' || ext === '7') {
+                    this.isAddMode = false;
+                }
                 this.renderModifierButtons(); // Re-render to update active state
                 // No need to re-render chord buttons if logic is dynamic on click
             });
+        });
+
+        // Add "Add" Button
+        const isAddDisabled = this.currentExtension === 'triad' || this.currentExtension === '7';
+        const addBtn = this.modifierContainer.createEl('button', {
+            text: 'Add',
+            cls: 'abc-chord-modifier-btn'
+        });
+
+        addBtn.style.fontSize = '12px';
+        addBtn.style.padding = '2px 8px';
+        addBtn.style.cursor = isAddDisabled ? 'not-allowed' : 'pointer';
+        addBtn.style.backgroundColor = this.isAddMode ? 'var(--interactive-accent)' : 'var(--background-primary)';
+        addBtn.style.color = this.isAddMode ? 'var(--text-on-accent)' : (isAddDisabled ? 'var(--text-muted)' : 'var(--text-normal)');
+        addBtn.style.border = '1px solid var(--background-modifier-border)';
+        addBtn.style.borderRadius = '4px';
+        if (isAddDisabled) {
+            addBtn.style.opacity = '0.5';
+        }
+
+        addBtn.addEventListener('click', () => {
+            if (!isAddDisabled) {
+                this.isAddMode = !this.isAddMode;
+                this.renderModifierButtons();
+            }
         });
     }
 
@@ -244,17 +274,36 @@ export class ChordButtonBar {
         const rootIdx = degree - 1;
         const indices = [rootIdx, (rootIdx + 2) % 7, (rootIdx + 4) % 7]; // Triad
 
-        if (this.currentExtension === '7' || this.currentExtension === '9' || this.currentExtension === '11' || this.currentExtension === '13') {
-            indices.push((rootIdx + 6) % 7); // 7th
-        }
-        if (this.currentExtension === '9' || this.currentExtension === '11' || this.currentExtension === '13') {
-            indices.push((rootIdx + 8) % 7); // 9th (same as 2nd but octave up)
-        }
-        if (this.currentExtension === '11' || this.currentExtension === '13') {
-            indices.push((rootIdx + 10) % 7); // 11th
-        }
-        if (this.currentExtension === '13') {
-            indices.push((rootIdx + 12) % 7); // 13th
+        if (this.isAddMode) {
+            // Non-cumulative logic
+            // Triad is already added.
+            // If 9, add 9 (skip 7)
+            // If 11, add 11 (skip 7, 9)
+            // If 13, add 13 (skip 7, 9, 11)
+
+            if (this.currentExtension === '9') {
+                indices.push((rootIdx + 8) % 7); // 9th
+            } else if (this.currentExtension === '11') {
+                indices.push((rootIdx + 10) % 7); // 11th
+            } else if (this.currentExtension === '13') {
+                indices.push((rootIdx + 12) % 7); // 13th
+            }
+            // If 7, isAddMode should be false/disabled, but if it was somehow true, we just add 7?
+            // But logic says disable Add for 7.
+        } else {
+            // Cumulative logic
+            if (this.currentExtension === '7' || this.currentExtension === '9' || this.currentExtension === '11' || this.currentExtension === '13') {
+                indices.push((rootIdx + 6) % 7); // 7th
+            }
+            if (this.currentExtension === '9' || this.currentExtension === '11' || this.currentExtension === '13') {
+                indices.push((rootIdx + 8) % 7); // 9th (same as 2nd but octave up)
+            }
+            if (this.currentExtension === '11' || this.currentExtension === '13') {
+                indices.push((rootIdx + 10) % 7); // 11th
+            }
+            if (this.currentExtension === '13') {
+                indices.push((rootIdx + 12) % 7); // 13th
+            }
         }
 
         // Get notes and values
@@ -309,19 +358,20 @@ export class ChordButtonBar {
 
         // So the logic "if val < prevVal, add 12" works for simple stacking.
         // But we need to accumulate +12s.
-        // If we add 12 to 3rd, 5th is compared to *adjusted* 3rd.
-
+        // If we add 12 to 3rd, 5th is compared        // Adjust octaves
         let currentOctaveOffset = 0;
         for (let i = 1; i < adjustedValues.length; i++) {
-            // We compare with previous *adjusted* value?
-            // No, we compare base values and track octave shifts.
-            // Actually, simpler:
-            // While val <= prevVal, val += 12.
-            // Because extensions might need +24? Unlikely for tertian chords.
-            // But let's be safe.
-
             while (adjustedValues[i] <= adjustedValues[i - 1]) {
                 adjustedValues[i] += 12;
+            }
+        }
+
+        // Add Mode Octave Boost
+        // Ensure 9, 11, 13 are at least root + 12 (compound intervals)
+        if (this.isAddMode && (this.currentExtension === '9' || this.currentExtension === '11' || this.currentExtension === '13')) {
+            const lastIdx = adjustedValues.length - 1;
+            while (adjustedValues[lastIdx] < adjustedValues[0] + 12) {
+                adjustedValues[lastIdx] += 12;
             }
         }
 
