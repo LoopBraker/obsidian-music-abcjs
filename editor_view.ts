@@ -1,11 +1,10 @@
-import { ItemView, WorkspaceLeaf, TFile } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Notice } from 'obsidian';
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, rectangularSelection, crosshairCursor, highlightActiveLine } from '@codemirror/view';
 import { EditorState, EditorSelection } from '@codemirror/state';
-import { defaultKeymap, history, historyKeymap, indentWithTab, toggleComment } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
 import { bracketMatching, indentOnInput, foldGutter, foldService, foldEffect, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
-import { tags } from '@lezer/highlight';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { solarizedLight } from 'cm6-theme-solarized-light';
 import { solarizedDark } from 'cm6-theme-solarized-dark';
@@ -14,78 +13,67 @@ import { BarVisualizer } from './src/bar_visualizer';
 import { ChordButtonBar } from './src/chord_button_bar';
 import { transposeABC, setSelectionToDegreeABC } from './src/transposer';
 
+
 export const ABC_EDITOR_VIEW_TYPE = 'abc-music-editor';
 
-// Custom ABC comment toggle
+// --- HELPERS ---
 const toggleAbcComment = (view: EditorView): boolean => {
   const { state } = view;
   const changes = [];
-
   for (const range of state.selection.ranges) {
     const line = state.doc.lineAt(range.from);
     const lineText = line.text;
-
-    if (lineText.match(/^%%%/)) {
-      changes.push({ from: line.from, to: line.from + 3, insert: '%%' });
-    } else if (lineText.match(/^%%/)) {
-      changes.push({ from: line.from, to: line.from, insert: '%' });
-    } else if (lineText.match(/^%/)) {
-      changes.push({ from: line.from, to: line.from + 1, insert: '' });
-    } else {
-      changes.push({ from: line.from, to: line.from, insert: '%' });
-    }
+    if (lineText.match(/^%%%/)) changes.push({ from: line.from, to: line.from + 3, insert: '%%' });
+    else if (lineText.match(/^%%/)) changes.push({ from: line.from, to: line.from, insert: '%' });
+    else if (lineText.match(/^%/)) changes.push({ from: line.from, to: line.from + 1, insert: '' });
+    else changes.push({ from: line.from, to: line.from, insert: '%' });
   }
-
-  if (changes.length > 0) {
-    view.dispatch({ changes });
-  }
-
+  if (changes.length > 0) view.dispatch({ changes });
   return true;
 };
 
-// Custom fold service
 const abcFoldService = foldService.of((state, from, to) => {
   const line = state.doc.lineAt(from);
   const lineText = line.text.trim();
-
   if (lineText.startsWith('%-') || lineText.startsWith('%+')) {
     let endLine = line.number + 1;
     let foldEnd = line.to;
-
     while (endLine <= state.doc.lines) {
       const nextLine = state.doc.line(endLine);
       const nextLineText = nextLine.text.trim();
-
       if (nextLineText.startsWith('%-') || nextLineText.startsWith('%+')) {
         foldEnd = state.doc.line(endLine - 1).to;
         break;
       }
       endLine++;
-
       if (endLine > state.doc.lines) {
         foldEnd = state.doc.length;
         break;
       }
     }
-
-    if (foldEnd > line.to) {
-      return { from: line.to, to: foldEnd };
-    }
+    if (foldEnd > line.to) return { from: line.to, to: foldEnd };
   }
   return null;
 });
 
+// --- MAIN CLASS ---
+
 export class AbcEditorView extends ItemView {
-  private editorView: EditorView | null = null;
+  public editorView: EditorView | null = null;
+  
   private onChange: ((content: string) => void) | null = null;
   private onSave: ((content: string) => Promise<void>) | null = null;
   private onSelectionChange: ((startChar: number, endChar: number) => void) | null = null;
-  private currentContent: string = '';
+  
   private updateTimeout: NodeJS.Timeout | null = null;
   private editorContainer: HTMLElement | null = null;
   private currentTheme: any = oneDark;
   private barVisualizer: BarVisualizer | null = null;
   private chordButtonBar: ChordButtonBar | null = null;
+
+  // SAFETY FLAGS
+  private isDirty: boolean = false;
+  private isProgrammaticChange: boolean = false;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -94,54 +82,35 @@ export class AbcEditorView extends ItemView {
   getViewType(): string {
     return ABC_EDITOR_VIEW_TYPE;
   }
-
   getDisplayText(): string {
     return 'ABC Music Editor';
   }
-
   getIcon(): string {
     return 'music';
   }
 
-  private handleBeforeUnload = () => {
-    if (this.editorView && this.onSave) {
-      const content = this.editorView.state.doc.toString();
-      this.onSave(content).catch(err => console.error("Save on close failed", err));
-    }
-  }
-
   async onOpen(): Promise<void> {
-    const container = this.containerEl.children[1] as HTMLElement;
+    const container = this.contentEl;
     container.empty();
     container.addClass('abc-editor-view');
-
-    window.addEventListener('beforeunload', this.handleBeforeUnload);
 
     const header = container.createDiv({ cls: 'abc-editor-view-header' });
     header.createEl('h4', { text: 'ABC Music Code Editor' });
 
-    // Initialize Bar Visualizer if enabled
-    const app = (this.app as any);
-    const plugin = app.plugins?.plugins?.['music-code-blocks'];
-
-    // Initialize Chord Button Bar (Always enabled or check settings? Assuming always for now or same as visualizer?)
-    // User didn't specify a setting, but implied it goes with the visualizer context.
-    // Let's add it if visualizer is enabled, or just add it.
-    // Let's add it always for now, or maybe check a new setting if I were to add one.
-    // I'll add it always as requested feature.
     this.chordButtonBar = new ChordButtonBar(container, () => this.editorView);
 
+    const app = this.app as any;
+    const plugin = app.plugins?.plugins?.['music-code-blocks'];
     if (plugin?.settings?.showBarVisualizer) {
       this.barVisualizer = new BarVisualizer(container);
     }
 
     this.editorContainer = container.createDiv({ cls: 'abc-codemirror-container' });
-
     this.currentTheme = this.getTheme();
 
     this.editorView = new EditorView({
       state: EditorState.create({
-        doc: this.currentContent,
+        doc: "", // Start empty
         extensions: [
           this.currentTheme,
           abc([this.templateCompletionSource.bind(this)]),
@@ -173,35 +142,36 @@ export class AbcEditorView extends ItemView {
           ]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
-              if (this.updateTimeout) clearTimeout(this.updateTimeout);
-              this.updateTimeout = setTimeout(() => {
+                // SAFETY CHECK: Only mark dirty if user typed (not programmatic load)
+                if (!this.isProgrammaticChange) {
+                    this.isDirty = true;
+                }
+
+                if (this.updateTimeout) clearTimeout(this.updateTimeout);
+                this.updateTimeout = setTimeout(() => {
+                    const content = update.state.doc.toString();
+                    
+                    // Call onChange (live preview update)
+                    if (this.onChange) this.onChange(content);
+                    
+                    // Update visualizers
+                    const cursor = update.state.selection.main.head;
+                    if (this.barVisualizer) this.barVisualizer.update(content, cursor);
+                    if (this.chordButtonBar) this.chordButtonBar.update(content, cursor);
+                    
+                    // Optional: You could enable auto-save here if desired, 
+                    // but for safety, ensure onSave is defined.
+                }, 300);
+            }
+            if (update.selectionSet && this.onSelectionChange) {
+                const selection = update.state.selection.main;
+                this.onSelectionChange(selection.from, selection.to);
+                
+                // Update visualizers
                 const content = update.state.doc.toString();
-                if (this.onChange) this.onChange(content);
-                // Update visualizer
                 const cursor = update.state.selection.main.head;
                 if (this.barVisualizer) this.barVisualizer.update(content, cursor);
                 if (this.chordButtonBar) this.chordButtonBar.update(content, cursor);
-              }, 300);
-            }
-            if (update.selectionSet && this.onSelectionChange) {
-              const selection = update.state.selection.main;
-              let start = selection.from;
-              let end = selection.to;
-
-              if (start === end && start < update.state.doc.length) {
-                end = start + 1;
-              }
-              this.onSelectionChange(start, end);
-
-              // Update visualizer on selection change
-              if (this.barVisualizer && this.editorView) {
-                const content = this.editorView.state.doc.toString();
-                this.barVisualizer.update(content, update.state.selection.main.head);
-              }
-              if (this.chordButtonBar && this.editorView) {
-                const content = this.editorView.state.doc.toString();
-                this.chordButtonBar.update(content, update.state.selection.main.head);
-              }
             }
           }),
           EditorView.theme({
@@ -215,37 +185,41 @@ export class AbcEditorView extends ItemView {
       }),
       parent: this.editorContainer,
     });
-
-    const helpText = container.createDiv({ cls: 'abc-editor-view-help' });
-    helpText.innerHTML = `
-      <p><strong>Live editing:</strong> Changes update automatically as you type.</p>
-      <p><strong>Templates:</strong> Type "temp" to search and insert templates.</p>
-      <p><strong>Shortcuts:</strong> Cmd+D (select word/next occurrence), Cmd+F (find), Cmd+Z/Shift+Z (undo/redo)</p>
-    `;
   }
 
   async onClose(): Promise<void> {
-      // 1. Remove the global event listener
-      window.removeEventListener('beforeunload', this.handleBeforeUnload);
+    // SAFETY 1: Do not save if the user never touched the file (dirty is false)
+    // This handles the "reload -> open -> close immediately" loop where content is empty
+    if (this.isDirty && this.editorView && this.onSave) {
+        const content = this.editorView.state.doc.toString();
+        
+        // SAFETY 2: Never save an empty string on close. 
+        // Prevents wiping file if something went catastrophic.
+        if (content.trim().length > 0) {
+            await this.onSave(content).catch(err => console.error("Save failed", err));
+        }
+    }
 
-      if (this.updateTimeout) {
-        clearTimeout(this.updateTimeout);
-      }
-      if (this.editorView) {
-        this.editorView.destroy();
-        this.editorView = null;
-      }
-      this.onChange = null;
-      this.onSelectionChange = null;
+    if (this.updateTimeout) clearTimeout(this.updateTimeout);
+    if (this.editorView) {
+      this.editorView.destroy();
+      this.editorView = null;
+    }
+    
+    // Clean up
+    this.onChange = null;
+    this.onSelectionChange = null;
+    this.onSave = null;
+    this.isDirty = false;
   }
 
+  // Called by the plugin to load content
   setContent(
     content: string,
     onChange: (content: string) => void,
     onSave: (content: string) => Promise<void>,
     onSelectionChange?: (startChar: number, endChar: number) => void
   ): void {
-    this.currentContent = content;
     this.onChange = onChange;
     this.onSave = onSave;
     this.onSelectionChange = onSelectionChange || null;
@@ -253,42 +227,35 @@ export class AbcEditorView extends ItemView {
     if (this.editorView) {
       const currentDoc = this.editorView.state.doc.toString();
       if (currentDoc !== content) {
+        // Mark this as a system change, not a user change
+        this.isProgrammaticChange = true;
+        
         const selection = this.editorView.state.selection.main;
         this.editorView.dispatch({
-          changes: {
-            from: 0,
-            to: this.editorView.state.doc.length,
-            insert: content,
-          },
+          changes: { from: 0, to: this.editorView.state.doc.length, insert: content },
           selection: EditorSelection.cursor(Math.min(selection.from, content.length)),
         });
         this.applyInitialFolds();
+
+        // Reset flag immediately after dispatch
+        this.isProgrammaticChange = false;
+        // Ensure dirty is false because we just loaded fresh content
+        this.isDirty = false; 
       }
     }
   }
 
-  updateContent(content: string): void {
-    this.currentContent = content;
-    if (this.editorView) {
-      const currentDoc = this.editorView.state.doc.toString();
-      if (currentDoc !== content) {
-        const selection = this.editorView.state.selection.main;
-        this.editorView.dispatch({
-          changes: {
-            from: 0,
-            to: this.editorView.state.doc.length,
-            insert: content,
-          },
-          selection: EditorSelection.cursor(Math.min(selection.from, content.length)),
-        });
-      }
-    }
+  updateCallbacks(
+    onChange: (content: string) => void,
+    onSelectionChange?: (startChar: number, endChar: number) => void
+  ): void {
+    this.onChange = onChange;
+    this.onSelectionChange = onSelectionChange || null;
   }
 
   highlightRange(startChar: number, endChar: number): void {
     if (!this.editorView) return;
-    // @ts-ignore
-    if (this.app?.workspace) this.app.workspace.revealLeaf(this.leaf);
+    this.app.workspace.revealLeaf(this.leaf);
     setTimeout(() => {
       if (!this.editorView) return;
       const maxLength = this.editorView.state.doc.length;
@@ -302,13 +269,6 @@ export class AbcEditorView extends ItemView {
     }, 50);
   }
 
-  updateCallbacks(
-    onChange: (content: string) => void,
-    onSelectionChange?: (startChar: number, endChar: number) => void
-  ): void {
-    this.onChange = onChange;
-    this.onSelectionChange = onSelectionChange || null;
-  }
 
   // Template Parsing (Kept because Autocomplete uses it)
   private parseTemplateContent(content: string): string | null {
@@ -384,16 +344,14 @@ export class AbcEditorView extends ItemView {
   }
 
   private getTheme(): any {
-    const app = (this.app as any);
+    const app = this.app as any;
     const plugin = app.plugins?.plugins?.['music-code-blocks'];
     const isDark = document.body.classList.contains('theme-dark');
-
     if (isDark) {
       const darkTheme = plugin?.settings?.darkTheme || 'oneDark';
       return darkTheme === 'solarizedDark' ? solarizedDark : oneDark;
-    } else {
-      return solarizedLight;
     }
+    return solarizedLight;
   }
 
   refreshTheme(): void {
@@ -401,61 +359,42 @@ export class AbcEditorView extends ItemView {
     const newTheme = this.getTheme();
     if (newTheme !== this.currentTheme) {
       this.currentTheme = newTheme;
+      // We must preserve content and dirty state
       const content = this.editorView.state.doc.toString();
       const selection = this.editorView.state.selection;
+      const wasDirty = this.isDirty;
+
       this.editorView.destroy();
       this.createEditorWithTheme(content, selection);
-
-      // Refresh visualizers
-      if (this.chordButtonBar) {
-        this.chordButtonBar.refresh();
-      }
+      
+      this.isDirty = wasDirty; // Restore dirty state
+      
+      if (this.chordButtonBar) this.chordButtonBar.refresh();
     }
   }
 
   refreshVisualizer(): void {
-    const app = (this.app as any);
-    const plugin = app.plugins?.plugins?.['music-code-blocks'];
-    const show = plugin?.settings?.showBarVisualizer;
+      // (Keep your existing implementation or copy from previous)
+      const app = this.app as any;
+      const plugin = app.plugins?.plugins?.['music-code-blocks'];
+      const show = plugin?.settings?.showBarVisualizer;
 
-    if (show && !this.barVisualizer) {
-      // Enable
-      const container = this.containerEl.children[1] as HTMLElement;
-      this.barVisualizer = new BarVisualizer(container);
-
-      // Move visualizer to top if needed, or just ensure it's there.
-      // The container has header, visualizer (if added), editorContainer.
-      // We want visualizer after header.
-      // Current structure: header, editorContainer.
-      // BarVisualizer appends to container.
-      // We should insert it before editorContainer.
-
-      // Actually BarVisualizer constructor does: parent.createDiv(...) which appends.
-      // We need to move it.
-      if (this.barVisualizer['container'] && this.editorContainer) {
-        container.insertBefore(this.barVisualizer['container'], this.editorContainer);
+      if (show && !this.barVisualizer) {
+        this.barVisualizer = new BarVisualizer(this.contentEl);
+        if (this.barVisualizer['container'] && this.editorContainer) {
+          this.contentEl.insertBefore(this.barVisualizer['container'], this.editorContainer);
+        }
+        if (this.editorView) {
+            this.barVisualizer.update(this.editorView.state.doc.toString(), 0);
+        }
+      } else if (!show && this.barVisualizer) {
+        if (this.barVisualizer['container']) this.barVisualizer['container'].remove();
+        this.barVisualizer = null;
       }
-
-      // Update with current content
-      if (this.editorView) {
-        const content = this.editorView.state.doc.toString();
-        const cursor = this.editorView.state.selection.main.head;
-        this.barVisualizer.update(content, cursor);
-      }
-
-    } else if (!show && this.barVisualizer) {
-      // Disable
-      // We need a destroy method on BarVisualizer or just remove the element
-      if (this.barVisualizer['container']) {
-        this.barVisualizer['container'].remove();
-      }
-      this.barVisualizer = null;
-    }
   }
 
   private createEditorWithTheme(content: string, selection?: any): void {
     if (!this.editorContainer) return;
-
     this.editorView = new EditorView({
       state: EditorState.create({
         doc: content,
@@ -495,7 +434,6 @@ export class AbcEditorView extends ItemView {
               this.updateTimeout = setTimeout(() => {
                 const content = update.state.doc.toString();
                 if (this.onChange) this.onChange(content);
-                // Update visualizer
                 const cursor = update.state.selection.main.head;
                 if (this.barVisualizer) this.barVisualizer.update(content, cursor);
                 if (this.chordButtonBar) this.chordButtonBar.update(content, cursor);
@@ -504,16 +442,11 @@ export class AbcEditorView extends ItemView {
             if (update.selectionSet && this.onSelectionChange) {
               const selection = update.state.selection.main;
               this.onSelectionChange(selection.from, selection.to);
-
-              // Update visualizer on selection change
-              if (this.barVisualizer && this.editorView) {
-                const content = this.editorView.state.doc.toString();
-                this.barVisualizer.update(content, update.state.selection.main.head);
-              }
-              if (this.chordButtonBar && this.editorView) {
-                const content = this.editorView.state.doc.toString();
-                this.chordButtonBar.update(content, update.state.selection.main.head);
-              }
+              
+              const content = update.state.doc.toString();
+              const cursor = update.state.selection.main.head;
+              if (this.barVisualizer) this.barVisualizer.update(content, cursor);
+              if (this.chordButtonBar) this.chordButtonBar.update(content, cursor);
             }
           }),
           EditorView.theme({
@@ -532,24 +465,19 @@ export class AbcEditorView extends ItemView {
 
   private applyInitialFolds(): void {
     if (!this.editorView) return;
-
     const state = this.editorView.state;
     const doc = state.doc;
     const effects = [];
-
     for (let i = 1; i <= doc.lines; i++) {
       const line = doc.line(i);
       const text = line.text.trim();
-
       if (text.startsWith('%-')) {
         let endLine = i + 1;
         let foldEnd = line.to;
         let foundEnd = false;
-
         while (endLine <= doc.lines) {
           const nextLine = doc.line(endLine);
           const nextText = nextLine.text.trim();
-
           if (nextText.startsWith('%-') || nextText.startsWith('%+')) {
             foldEnd = doc.line(endLine - 1).to;
             foundEnd = true;
@@ -557,70 +485,38 @@ export class AbcEditorView extends ItemView {
           }
           endLine++;
         }
-
-        if (!foundEnd && endLine > doc.lines) {
-          foldEnd = doc.length;
-        }
-
-        if (foldEnd > line.to) {
-          effects.push(foldEffect.of({ from: line.to, to: foldEnd }));
-        }
+        if (!foundEnd && endLine > doc.lines) foldEnd = doc.length;
+        if (foldEnd > line.to) effects.push(foldEffect.of({ from: line.to, to: foldEnd }));
       }
     }
-
-    if (effects.length > 0) {
-      this.editorView.dispatch({ effects });
-    }
+    if (effects.length > 0) this.editorView.dispatch({ effects });
   }
 
   transposeSelection(semitones: number): void {
     if (!this.editorView) return;
-
+    this.isDirty = true;
     const state = this.editorView.state;
     const changes = state.changeByRange((range) => {
-      if (range.empty) {
-        // If no selection, maybe transpose the note under cursor?
-        // For now, let's strictly follow "if a note or notes are selected".
-        // But user experience might be better if we expand to word?
-        // The request says "if a note or notes are selecteted".
-        // Let's stick to selection for now.
-        return { range };
-      }
-
+      if (range.empty) return { range };
       const selectedText = state.sliceDoc(range.from, range.to);
       const transposedText = transposeABC(selectedText, semitones);
-
       return {
         changes: { from: range.from, to: range.to, insert: transposedText },
         range: EditorSelection.range(range.from, range.from + transposedText.length)
       };
     });
-
     this.editorView.dispatch(state.update(changes, { scrollIntoView: true }));
   }
 
   setSelectionToDegree(degree: number): void {
     if (!this.editorView) return;
-
+    this.isDirty = true;
     const state = this.editorView.state;
     const doc = state.doc;
-
     const changes = state.changeByRange((range) => {
       if (range.empty) return { range };
-
-      // Find Key Signature
-      // Scan backwards from range.from
-      let keySignature = 'C'; // Default
-
-      // We scan line by line backwards
+      let keySignature = 'C';
       let lineNum = doc.lineAt(range.from).number;
-
-      // Optimization: Limit scan to reasonable number of lines? 
-      // Or just scan until start of doc. ABC files aren't usually massive.
-      // But we should stop if we hit another tune (X:)?
-      // Actually, K: applies until next K: or end of tune.
-      // So we scan backwards for K:
-
       for (let i = lineNum; i >= 1; i--) {
         const lineText = doc.line(i).text;
         const kMatch = lineText.match(/^K:(.*)/);
@@ -628,16 +524,8 @@ export class AbcEditorView extends ItemView {
           keySignature = kMatch[1].trim();
           break;
         }
-
-        // Also check inline [K:...]
-        // This is harder because there might be multiple on a line.
-        // We need the one closest to (before) our position.
-        // If we are on the same line (i == lineNum), we check before range.from.
-        // If on previous lines, we check the last one on that line.
-
         const inlineMatches = Array.from(lineText.matchAll(/\[K:(.*?)\]/g));
         if (inlineMatches.length > 0) {
-          // If this is the current line, filter matches before cursor
           if (i === lineNum) {
             const validMatches = inlineMatches.filter(m => m.index! < range.from);
             if (validMatches.length > 0) {
@@ -645,32 +533,19 @@ export class AbcEditorView extends ItemView {
               break;
             }
           } else {
-            // Previous line, take the last one
             keySignature = inlineMatches[inlineMatches.length - 1][1].trim();
             break;
           }
         }
-
-        // If we hit X: (start of tune), and haven't found K yet, maybe we stop?
-        // But K usually comes after X.
-        // If we go past X, we might be in previous tune.
-        if (lineText.startsWith('X:')) {
-          // We probably shouldn't look before X: of the current tune.
-          // But how do we know if we are inside a tune?
-          // Assuming standard ABC.
-          break;
-        }
+        if (lineText.startsWith('X:')) break;
       }
-
       const selectedText = state.sliceDoc(range.from, range.to);
       const newText = setSelectionToDegreeABC(selectedText, degree, keySignature);
-
       return {
         changes: { from: range.from, to: range.to, insert: newText },
         range: EditorSelection.range(range.from, range.from + newText.length)
       };
     });
-
     this.editorView.dispatch(state.update(changes, { scrollIntoView: true }));
   }
 }

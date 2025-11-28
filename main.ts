@@ -123,10 +123,13 @@ export default class MusicPlugin extends Plugin {
 		}
 	}
 
-	onunload() {
-		document.getElementById(PLAYBACK_CONTROLS_ID).remove();
+    onunload() {
+        const controls = document.getElementById(PLAYBACK_CONTROLS_ID);
+        if (controls) controls.remove();
 
-	}
+        // It is safe to detach here IF editor_view.ts is fixed (see below)
+        this.app.workspace.detachLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+    }
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
