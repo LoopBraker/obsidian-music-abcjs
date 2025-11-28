@@ -11,11 +11,85 @@ import { solarizedDark } from 'cm6-theme-solarized-dark';
 import { abc } from './src/abc-lang';
 import { BarVisualizer } from './src/bar_visualizer';
 import { ChordButtonBar } from './src/chord_button_bar';
-import { transposeABC, setSelectionToDegreeABC } from './src/transposer';
+import { transposeABC, setSelectionToDegreeABC, getScaleNote, parseKey } from './src/transposer';
 
 export const ABC_EDITOR_VIEW_TYPE = 'abc-music-editor';
 
 // --- HELPERS ---
+
+function findKeyAtPos(state: EditorState, pos: number): string {
+  const doc = state.doc;
+  const line = doc.lineAt(pos);
+
+  // Check current line for inline K before pos
+  const lineText = line.text;
+  const inlineMatches = Array.from(lineText.matchAll(/\[K:(.*?)\]/g));
+  const validMatches = inlineMatches.filter(m => (line.from + m.index!) < pos);
+
+  if (validMatches.length > 0) {
+    return validMatches[validMatches.length - 1][1].trim();
+  }
+
+  // Search backwards from previous line
+  for (let i = line.number - 1; i >= 1; i--) {
+    const l = doc.line(i);
+    const txt = l.text;
+    const kMatch = txt.match(/^K:(.*)/);
+    if (kMatch) return kMatch[1].trim();
+
+    const im = Array.from(txt.matchAll(/\[K:(.*?)\]/g));
+    if (im.length > 0) return im[im.length - 1][1].trim();
+
+    if (txt.startsWith('X:')) break; // New tune starts
+  }
+
+  return 'C'; // Default
+}
+
+const scaleDegreeExpander = EditorState.transactionFilter.of(tr => {
+  if (!tr.isUserEvent('input')) return tr;
+
+  let modified = false;
+  const newChanges: any[] = [];
+
+  tr.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+    if (inserted.toString() === " ") {
+      const before = tr.startState.doc.sliceString(Math.max(0, fromA - 3), fromA);
+      const match = before.match(/\.([1-7])([_#])?$/);
+      if (match) {
+        const degree = parseInt(match[1]);
+        const accidental = match[2];
+        const keySig = findKeyAtPos(tr.startState, fromA);
+        const { root, mode } = parseKey(keySig);
+        let note = getScaleNote(root, mode, degree);
+
+        if (accidental === '_') {
+          note = transposeABC(note, -1);
+        } else if (accidental === '#') {
+          note = transposeABC(note, 1);
+        }
+
+        // Replace .N[acc] with Note (consume the space)
+        const matchLen = match[0].length;
+        newChanges.push({ from: fromA - matchLen, to: fromA, insert: note });
+        modified = true;
+      } else {
+        newChanges.push({ from: fromA, to: toA, insert: inserted });
+      }
+    } else {
+      newChanges.push({ from: fromA, to: toA, insert: inserted });
+    }
+  });
+
+  if (modified) {
+    return {
+      changes: newChanges,
+      scrollIntoView: true
+    };
+  }
+  return tr;
+});
+
 const toggleAbcComment = (view: EditorView): boolean => {
   const { state } = view;
   const changes = [];
@@ -59,11 +133,11 @@ const abcFoldService = foldService.of((state, from, to) => {
 
 export class AbcEditorView extends ItemView {
   public editorView: EditorView | null = null;
-  
+
   private onChange: ((content: string) => void) | null = null;
   private onSave: ((content: string) => Promise<void>) | null = null;
   private onSelectionChange: ((startChar: number, endChar: number) => void) | null = null;
-  
+
   private updateTimeout: NodeJS.Timeout | null = null;
   private editorContainer: HTMLElement | null = null;
   private currentTheme: any = oneDark;
@@ -112,6 +186,7 @@ export class AbcEditorView extends ItemView {
         doc: "", // Start empty
         extensions: [
           this.currentTheme,
+          scaleDegreeExpander,
           abc([this.templateCompletionSource.bind(this)]),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           abcFoldService,
@@ -141,42 +216,42 @@ export class AbcEditorView extends ItemView {
           ]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
-                // SAFETY CHECK: Only mark dirty if user typed (not programmatic load)
-                if (!this.isProgrammaticChange) {
-                    this.isDirty = true;
+              // SAFETY CHECK: Only mark dirty if user typed (not programmatic load)
+              if (!this.isProgrammaticChange) {
+                this.isDirty = true;
+              }
+
+              if (this.updateTimeout) clearTimeout(this.updateTimeout);
+              // Wait 1 second after typing stops to save
+              this.updateTimeout = setTimeout(() => {
+                const content = update.state.doc.toString();
+
+                // 1. Update Live Preview (Playback)
+                if (this.onChange) this.onChange(content);
+
+                // 2. AUTO-SAVE to disk (The Fix)
+                // If the user typed, save it. Don't wait for close.
+                if (this.isDirty && this.onSave && content.trim().length > 0) {
+                  this.onSave(content).catch(e => console.error("Auto-save failed:", e));
+                  // We keep isDirty = true until a proper save confirmation or just leave it
+                  // to ensure onClose also tries to save any split-second changes.
                 }
 
-                if (this.updateTimeout) clearTimeout(this.updateTimeout);
-                // Wait 1 second after typing stops to save
-                this.updateTimeout = setTimeout(() => {
-                    const content = update.state.doc.toString();
-                    
-                    // 1. Update Live Preview (Playback)
-                    if (this.onChange) this.onChange(content);
-                    
-                    // 2. AUTO-SAVE to disk (The Fix)
-                    // If the user typed, save it. Don't wait for close.
-                    if (this.isDirty && this.onSave && content.trim().length > 0) {
-                        this.onSave(content).catch(e => console.error("Auto-save failed:", e));
-                        // We keep isDirty = true until a proper save confirmation or just leave it
-                        // to ensure onClose also tries to save any split-second changes.
-                    }
-                    
-                    // 3. Update visualizers
-                    const cursor = update.state.selection.main.head;
-                    if (this.barVisualizer) this.barVisualizer.update(content, cursor);
-                    if (this.chordButtonBar) this.chordButtonBar.update(content, cursor);
-                }, 1000); // 1000ms debounce
-            }
-            if (update.selectionSet && this.onSelectionChange) {
-                const selection = update.state.selection.main;
-                this.onSelectionChange(selection.from, selection.to);
-                
-                // Update visualizers
-                const content = update.state.doc.toString();
+                // 3. Update visualizers
                 const cursor = update.state.selection.main.head;
                 if (this.barVisualizer) this.barVisualizer.update(content, cursor);
                 if (this.chordButtonBar) this.chordButtonBar.update(content, cursor);
+              }, 1000); // 1000ms debounce
+            }
+            if (update.selectionSet && this.onSelectionChange) {
+              const selection = update.state.selection.main;
+              this.onSelectionChange(selection.from, selection.to);
+
+              // Update visualizers
+              const content = update.state.doc.toString();
+              const cursor = update.state.selection.main.head;
+              if (this.barVisualizer) this.barVisualizer.update(content, cursor);
+              if (this.chordButtonBar) this.chordButtonBar.update(content, cursor);
             }
           }),
           EditorView.theme({
@@ -195,11 +270,11 @@ export class AbcEditorView extends ItemView {
   async onClose(): Promise<void> {
     // Save final changes on close
     if (this.isDirty && this.editorView && this.onSave) {
-        const content = this.editorView.state.doc.toString();
-        // Prevent wiping file with empty string
-        if (content.trim().length > 0) {
-            await this.onSave(content).catch(err => console.error("Save failed", err));
-        }
+      const content = this.editorView.state.doc.toString();
+      // Prevent wiping file with empty string
+      if (content.trim().length > 0) {
+        await this.onSave(content).catch(err => console.error("Save failed", err));
+      }
     }
 
     if (this.updateTimeout) clearTimeout(this.updateTimeout);
@@ -207,7 +282,7 @@ export class AbcEditorView extends ItemView {
       this.editorView.destroy();
       this.editorView = null;
     }
-    
+
     // Clean up
     this.onChange = null;
     this.onSelectionChange = null;
@@ -231,7 +306,7 @@ export class AbcEditorView extends ItemView {
       if (currentDoc !== content) {
         // Mark this as a system change, not a user change
         this.isProgrammaticChange = true;
-        
+
         const selection = this.editorView.state.selection.main;
         this.editorView.dispatch({
           changes: { from: 0, to: this.editorView.state.doc.length, insert: content },
@@ -242,7 +317,7 @@ export class AbcEditorView extends ItemView {
         // Reset flag immediately after dispatch
         this.isProgrammaticChange = false;
         // Ensure dirty is false because we just loaded fresh content
-        this.isDirty = false; 
+        this.isDirty = false;
       }
     }
   }
@@ -354,29 +429,29 @@ export class AbcEditorView extends ItemView {
 
       this.editorView.destroy();
       this.createEditorWithTheme(content, selection);
-      
+
       this.isDirty = wasDirty;
       if (this.chordButtonBar) this.chordButtonBar.refresh();
     }
   }
 
   refreshVisualizer(): void {
-      const app = this.app as any;
-      const plugin = app.plugins?.plugins?.['music-code-blocks'];
-      const show = plugin?.settings?.showBarVisualizer;
+    const app = this.app as any;
+    const plugin = app.plugins?.plugins?.['music-code-blocks'];
+    const show = plugin?.settings?.showBarVisualizer;
 
-      if (show && !this.barVisualizer) {
-        this.barVisualizer = new BarVisualizer(this.contentEl);
-        if (this.barVisualizer['container'] && this.editorContainer) {
-          this.contentEl.insertBefore(this.barVisualizer['container'], this.editorContainer);
-        }
-        if (this.editorView) {
-            this.barVisualizer.update(this.editorView.state.doc.toString(), 0);
-        }
-      } else if (!show && this.barVisualizer) {
-        if (this.barVisualizer['container']) this.barVisualizer['container'].remove();
-        this.barVisualizer = null;
+    if (show && !this.barVisualizer) {
+      this.barVisualizer = new BarVisualizer(this.contentEl);
+      if (this.barVisualizer['container'] && this.editorContainer) {
+        this.contentEl.insertBefore(this.barVisualizer['container'], this.editorContainer);
       }
+      if (this.editorView) {
+        this.barVisualizer.update(this.editorView.state.doc.toString(), 0);
+      }
+    } else if (!show && this.barVisualizer) {
+      if (this.barVisualizer['container']) this.barVisualizer['container'].remove();
+      this.barVisualizer = null;
+    }
   }
 
   private createEditorWithTheme(content: string, selection?: any): void {
@@ -387,6 +462,7 @@ export class AbcEditorView extends ItemView {
         selection: selection,
         extensions: [
           this.currentTheme,
+          scaleDegreeExpander,
           abc([this.templateCompletionSource.bind(this)]),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           abcFoldService,
@@ -422,10 +498,10 @@ export class AbcEditorView extends ItemView {
               this.updateTimeout = setTimeout(() => {
                 const content = update.state.doc.toString();
                 if (this.onChange) this.onChange(content);
-                
+
                 // AUTO-SAVE (Same logic as onOpen)
                 if (this.isDirty && this.onSave && content.trim().length > 0) {
-                     this.onSave(content).catch(e => console.error("Auto-save failed:", e));
+                  this.onSave(content).catch(e => console.error("Auto-save failed:", e));
                 }
 
                 const cursor = update.state.selection.main.head;
@@ -436,7 +512,7 @@ export class AbcEditorView extends ItemView {
             if (update.selectionSet && this.onSelectionChange) {
               const selection = update.state.selection.main;
               this.onSelectionChange(selection.from, selection.to);
-              
+
               const content = update.state.doc.toString();
               const cursor = update.state.selection.main.head;
               if (this.barVisualizer) this.barVisualizer.update(content, cursor);
@@ -509,30 +585,9 @@ export class AbcEditorView extends ItemView {
     const doc = state.doc;
     const changes = state.changeByRange((range) => {
       if (range.empty) return { range };
-      let keySignature = 'C';
-      let lineNum = doc.lineAt(range.from).number;
-      for (let i = lineNum; i >= 1; i--) {
-        const lineText = doc.line(i).text;
-        const kMatch = lineText.match(/^K:(.*)/);
-        if (kMatch) {
-          keySignature = kMatch[1].trim();
-          break;
-        }
-        const inlineMatches = Array.from(lineText.matchAll(/\[K:(.*?)\]/g));
-        if (inlineMatches.length > 0) {
-          if (i === lineNum) {
-            const validMatches = inlineMatches.filter(m => m.index! < range.from);
-            if (validMatches.length > 0) {
-              keySignature = validMatches[validMatches.length - 1][1].trim();
-              break;
-            }
-          } else {
-            keySignature = inlineMatches[inlineMatches.length - 1][1].trim();
-            break;
-          }
-        }
-        if (lineText.startsWith('X:')) break;
-      }
+
+      const keySignature = findKeyAtPos(state, range.from);
+
       const selectedText = state.sliceDoc(range.from, range.to);
       const newText = setSelectionToDegreeABC(selectedText, degree, keySignature);
       return {
