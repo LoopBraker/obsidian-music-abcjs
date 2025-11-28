@@ -5,13 +5,13 @@
  */
 
 // Note to semitone index (C=0)
-const NOTE_VALUES: Record<string, number> = {
+export const NOTE_VALUES: Record<string, number> = {
     'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11,
     'c': 12, 'd': 14, 'e': 16, 'f': 17, 'g': 19, 'a': 21, 'b': 23
 };
 
 // Accidental values
-const ACCIDENTALS: Record<string, number> = {
+export const ACCIDENTALS: Record<string, number> = {
     '^': 1, '^^': 2, '_': -1, '__': -2, '=': 0
 };
 
@@ -278,19 +278,30 @@ const MINOR_SCALE_INTERVALS = [0, 2, 3, 5, 7, 8, 10]; // Natural Minor
  */
 export function parseKey(keyStr: string): { root: string, mode: 'major' | 'minor' } {
     keyStr = keyStr.trim();
-
-    // Match root (A-G + optional accidentals) and mode
-    // Modes: m, min, minor (minor); maj, major, or nothing (major)
-    // Also Mixolydian etc? User only asked for Major/Minor.
-
+    // Match Root (A-G, optional #/b) and the rest
     const match = keyStr.match(/^([A-G][#b]?)(.*)$/i);
     if (!match) return { root: 'C', mode: 'major' };
 
-    const root = match[1]; // e.g. C, Eb, F#
+    const root = match[1];
     const suffix = match[2].trim().toLowerCase();
 
     let mode: 'major' | 'minor' = 'major';
-    if (['m', 'min', 'minor'].includes(suffix)) {
+
+    // Check if suffix starts with m, min, minor
+    // We split by space to get the first word of suffix, or just regex check
+    // "m" -> minor
+    // "min" -> minor
+    // "minor" -> minor
+    // "mix..." -> major (default)
+    // "dor..." -> minor-ish but usually treated as mode. For chord bar, we stick to major/minor triads?
+    // If user wants diatonic chords for modes, that's a bigger feature.
+    // For now, let's just fix the "minor" detection.
+
+    // Regex to look for minor indicators at start of suffix
+    // \b ensures word boundary if needed, but suffix starts right after root.
+    // Examples: "m", "min", "minor", "m clef=..."
+
+    if (/^(m|min|minor)(\s|$)/.test(suffix)) {
         mode = 'minor';
     }
 
@@ -301,7 +312,7 @@ export function parseKey(keyStr: string): { root: string, mode: 'major' | 'minor
  * Gets the target note name (e.g. "^F") for a given degree in a key.
  * Degree is 1-based (1-7).
  */
-function getScaleNote(root: string, mode: 'major' | 'minor', degree: number): string {
+export function getScaleNote(root: string, mode: 'major' | 'minor', degree: number): string {
     // 1. Get root value
     // We need to handle root accidentals properly.
     // NOTE_VALUES has C, D...

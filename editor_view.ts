@@ -11,6 +11,7 @@ import { solarizedLight } from 'cm6-theme-solarized-light';
 import { solarizedDark } from 'cm6-theme-solarized-dark';
 import { abc } from './src/abc-lang';
 import { BarVisualizer } from './src/bar_visualizer';
+import { ChordButtonBar } from './src/chord_button_bar';
 import { transposeABC, setSelectionToDegreeABC } from './src/transposer';
 
 export const ABC_EDITOR_VIEW_TYPE = 'abc-music-editor';
@@ -84,6 +85,7 @@ export class AbcEditorView extends ItemView {
   private editorContainer: HTMLElement | null = null;
   private currentTheme: any = oneDark;
   private barVisualizer: BarVisualizer | null = null;
+  private chordButtonBar: ChordButtonBar | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -121,6 +123,14 @@ export class AbcEditorView extends ItemView {
     // Initialize Bar Visualizer if enabled
     const app = (this.app as any);
     const plugin = app.plugins?.plugins?.['music-code-blocks'];
+
+    // Initialize Chord Button Bar (Always enabled or check settings? Assuming always for now or same as visualizer?)
+    // User didn't specify a setting, but implied it goes with the visualizer context.
+    // Let's add it if visualizer is enabled, or just add it.
+    // Let's add it always for now, or maybe check a new setting if I were to add one.
+    // I'll add it always as requested feature.
+    this.chordButtonBar = new ChordButtonBar(container, () => this.editorView);
+
     if (plugin?.settings?.showBarVisualizer) {
       this.barVisualizer = new BarVisualizer(container);
     }
@@ -170,6 +180,7 @@ export class AbcEditorView extends ItemView {
                 // Update visualizer
                 const cursor = update.state.selection.main.head;
                 if (this.barVisualizer) this.barVisualizer.update(content, cursor);
+                if (this.chordButtonBar) this.chordButtonBar.update(content, cursor);
               }, 300);
             }
             if (update.selectionSet && this.onSelectionChange) {
@@ -186,6 +197,10 @@ export class AbcEditorView extends ItemView {
               if (this.barVisualizer && this.editorView) {
                 const content = this.editorView.state.doc.toString();
                 this.barVisualizer.update(content, update.state.selection.main.head);
+              }
+              if (this.chordButtonBar && this.editorView) {
+                const content = this.editorView.state.doc.toString();
+                this.chordButtonBar.update(content, update.state.selection.main.head);
               }
             }
           }),
@@ -387,6 +402,11 @@ export class AbcEditorView extends ItemView {
       const selection = this.editorView.state.selection;
       this.editorView.destroy();
       this.createEditorWithTheme(content, selection);
+
+      // Refresh visualizers
+      if (this.chordButtonBar) {
+        this.chordButtonBar.refresh();
+      }
     }
   }
 
@@ -475,6 +495,7 @@ export class AbcEditorView extends ItemView {
                 // Update visualizer
                 const cursor = update.state.selection.main.head;
                 if (this.barVisualizer) this.barVisualizer.update(content, cursor);
+                if (this.chordButtonBar) this.chordButtonBar.update(content, cursor);
               }, 300);
             }
             if (update.selectionSet && this.onSelectionChange) {
@@ -485,6 +506,10 @@ export class AbcEditorView extends ItemView {
               if (this.barVisualizer && this.editorView) {
                 const content = this.editorView.state.doc.toString();
                 this.barVisualizer.update(content, update.state.selection.main.head);
+              }
+              if (this.chordButtonBar && this.editorView) {
+                const content = this.editorView.state.doc.toString();
+                this.chordButtonBar.update(content, update.state.selection.main.head);
               }
             }
           }),

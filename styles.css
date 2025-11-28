@@ -416,3 +416,28 @@
 .abc-editor-view-help strong {
   color: var(--text-normal);
 }
+
+/* Chord Button Bar Styles */
+.div-chord-button-container {
+  transition: transform 0.1s ease;
+}
+
+.div-chord-button-container:hover {
+  transform: translateY(-2px);
+}
+
+.div-chord-button {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  overflow: hidden;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.1s ease, box-shadow 0.1s ease;
+}
+
+.div-chord-button-container:hover .div-chord-button {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
+}
