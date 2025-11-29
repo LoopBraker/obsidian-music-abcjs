@@ -46,12 +46,27 @@ export default class MusicPlugin extends Plugin {
 		// Register commands
 		this.addCommand({
 			id: 'abc-transpose-up',
-			name: 'ABC: Raise pitch (semitone)',
+			name: 'ABC: Raise pitch (prefer sharps)',
 			checkCallback: (checking: boolean) => {
 				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
 				if (view) {
 					if (!checking) {
-						view.transposeSelection(1);
+						view.transposeSelection(1, false); // false = prefer sharps
+					}
+					return true;
+				}
+				return false;
+			}
+		});
+
+		this.addCommand({
+			id: 'abc-transpose-up-flat',
+			name: 'ABC: Raise pitch (prefer flats)',
+			checkCallback: (checking: boolean) => {
+				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+				if (view) {
+					if (!checking) {
+						view.transposeSelection(1, true); // true = prefer flats
 					}
 					return true;
 				}
@@ -61,12 +76,27 @@ export default class MusicPlugin extends Plugin {
 
 		this.addCommand({
 			id: 'abc-transpose-down',
-			name: 'ABC: Lower pitch (semitone)',
+			name: 'ABC: Lower pitch (prefer flats)',
 			checkCallback: (checking: boolean) => {
 				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
 				if (view) {
 					if (!checking) {
-						view.transposeSelection(-1);
+						view.transposeSelection(-1, true); // true = prefer flats
+					}
+					return true;
+				}
+				return false;
+			}
+		});
+
+		this.addCommand({
+			id: 'abc-transpose-down-sharp',
+			name: 'ABC: Lower pitch (prefer sharps)',
+			checkCallback: (checking: boolean) => {
+				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+				if (view) {
+					if (!checking) {
+						view.transposeSelection(-1, false); // false = prefer sharps
 					}
 					return true;
 				}
@@ -123,13 +153,13 @@ export default class MusicPlugin extends Plugin {
 		}
 	}
 
-    onunload() {
-        const controls = document.getElementById(PLAYBACK_CONTROLS_ID);
-        if (controls) controls.remove();
+	onunload() {
+		const controls = document.getElementById(PLAYBACK_CONTROLS_ID);
+		if (controls) controls.remove();
 
-        // It is safe to detach here IF editor_view.ts is fixed (see below)
-        this.app.workspace.detachLeavesOfType(ABC_EDITOR_VIEW_TYPE);
-    }
+		// It is safe to detach here IF editor_view.ts is fixed (see below)
+		this.app.workspace.detachLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+	}
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());

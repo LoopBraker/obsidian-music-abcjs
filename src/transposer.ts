@@ -28,7 +28,8 @@ const CHROMATIC_SCALE_FLAT = ['C', '_D', 'D', '_E', 'E', 'F', '_G', 'G', '_A', '
  * Transposes a single ABC note token.
  * Returns the transposed token.
  */
-function transposeNote(token: string, semitones: number): string {
+function transposeNote(token: string, semitones: number, preferFlats?: boolean): string {
+    // console.log(`transposeNote: token=${token}, semitones=${semitones}, preferFlats=${preferFlats}`);
     // Regex to parse: (Accidental)(Basenote)(Octave)
     // Basenote is [A-Ga-g]
     // Accidental is [\^=_]+
@@ -112,7 +113,15 @@ function transposeNote(token: string, semitones: number): string {
     let noteName = '';
     let newAccStr = '';
 
-    const scale = semitones < 0 ? CHROMATIC_SCALE_FLAT : CHROMATIC_SCALE_SHARP;
+    let scale;
+    if (preferFlats === true) {
+        scale = CHROMATIC_SCALE_FLAT;
+    } else if (preferFlats === false) {
+        scale = CHROMATIC_SCALE_SHARP;
+    } else {
+        // Default behavior: Up -> Sharps, Down -> Flats
+        scale = semitones < 0 ? CHROMATIC_SCALE_FLAT : CHROMATIC_SCALE_SHARP;
+    }
     const noteString = scale[pitchClass]; // e.g. "^C" or "_D" or "C"
 
     // Parse the scale string
@@ -179,7 +188,7 @@ function transposeNote(token: string, semitones: number): string {
  * Main transposition function.
  * Parses the input string and transposes valid notes.
  */
-export function transposeABC(input: string, semitones: number): string {
+export function transposeABC(input: string, semitones: number, preferFlats?: boolean): string {
     if (semitones === 0) return input;
 
     // We need to tokenize the input to identify notes vs other things.
@@ -231,7 +240,7 @@ export function transposeABC(input: string, semitones: number): string {
 
         // Process text before this match
         const prefix = input.slice(lastIndex, index);
-        result += processUnprotectedText(prefix, semitones);
+        result += processUnprotectedText(prefix, semitones, preferFlats);
 
         // Append protected text unchanged
         result += protectedText;
@@ -240,12 +249,12 @@ export function transposeABC(input: string, semitones: number): string {
     }
 
     // Process remaining text
-    result += processUnprotectedText(input.slice(lastIndex), semitones);
+    result += processUnprotectedText(input.slice(lastIndex), semitones, preferFlats);
 
     return result;
 }
 
-function processUnprotectedText(text: string, semitones: number): string {
+function processUnprotectedText(text: string, semitones: number, preferFlats?: boolean): string {
     // In unprotected text, we look for notes.
     // A note is: (Accidentals)(Base)(Octave)(Duration?)
     // We only transpose the pitch part.
@@ -264,7 +273,7 @@ function processUnprotectedText(text: string, semitones: number): string {
     // In the body, pretty much any [A-G] is a note.
 
     return text.replace(/([\^=_]*[A-Ga-g][,']*)/g, (match) => {
-        return transposeNote(match, semitones);
+        return transposeNote(match, semitones, preferFlats);
     });
 }
 

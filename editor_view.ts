@@ -856,14 +856,14 @@ export class AbcEditorView extends ItemView {
     if (effects.length > 0) this.editorView.dispatch({ effects });
   }
 
-  transposeSelection(semitones: number): void {
+  transposeSelection(semitones: number, preferFlats?: boolean): void {
     if (!this.editorView) return;
     this.isDirty = true;
     const state = this.editorView.state;
     const changes = state.changeByRange((range) => {
       if (range.empty) return { range };
       const selectedText = state.sliceDoc(range.from, range.to);
-      const transposedText = transposeABC(selectedText, semitones);
+      const transposedText = transposeABC(selectedText, semitones, preferFlats);
       return {
         changes: { from: range.from, to: range.to, insert: transposedText },
         range: EditorSelection.range(range.from, range.from + transposedText.length)
