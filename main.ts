@@ -56,6 +56,50 @@ export default class MusicPlugin extends Plugin {
 			})
 		);
 
+		// 2. NEW: Handle Focus Changes (Obscure/Unobscure)
+		this.registerEvent(
+			this.app.workspace.on('active-leaf-change', (leaf) => {
+				// Find our editor view
+				const abcLeaves = this.app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+				if (abcLeaves.length === 0) return;
+
+				const abcLeaf = abcLeaves[0];
+				const view = abcLeaf.view as AbcEditorView;
+
+				// If editor hasn't been linked to a file yet, ignore
+				if (!view.associatedFilePath) return;
+
+				// --- THE CRITICAL LOGIC ---
+
+				// Case A: The user clicked the ABC Editor itself.
+				// We MUST keep it unlocked so they can type.
+				if (leaf && leaf.view.getViewType() === ABC_EDITOR_VIEW_TYPE) {
+					view.setObscured(false);
+					return;
+				}
+
+				// Case B: The user clicked a Markdown file.
+				// Is it the linked file?
+				if (leaf && leaf.view instanceof MarkdownView) {
+					const mdView = leaf.view as MarkdownView;
+					if (mdView.file && mdView.file.path === view.associatedFilePath) {
+						// User went back to the source note -> Unlock
+						view.setObscured(false);
+					} else {
+						// User went to a DIFFERENT note -> Lock
+						view.setObscured(true);
+					}
+					return;
+				}
+
+				// Case C: User clicked something else entirely (Graph view, Settings, etc)
+				// We generally want to lock it to avoid confusion, 
+				// but we check if the leaf is valid first.
+				if (leaf) {
+					view.setObscured(true);
+				}
+			})
+		);
 
 		// Although unused by us, a valid DOM element is needed to create a SynthController
 		const unusedPlaybackControls = document.createElement('aside');

@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile } from 'obsidian';
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, rectangularSelection, crosshairCursor, highlightActiveLine } from '@codemirror/view';
 import { EditorState, EditorSelection } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -108,6 +108,7 @@ export class AbcEditorView extends ItemView {
 
   // PATH
   public associatedFilePath: string | null = null; // Path to the file this editor is associated with
+  private overlayEl: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -127,6 +128,45 @@ export class AbcEditorView extends ItemView {
     const container = this.contentEl;
     container.empty();
     container.addClass('abc-editor-view');
+
+    container.style.position = 'relative';
+
+    // Create the Overlay Element (Hidden by default) ---
+    this.overlayEl = container.createDiv({ cls: 'abc-editor-overlay' });
+    this.overlayEl.style.position = 'absolute';
+    this.overlayEl.style.top = '0';
+    this.overlayEl.style.left = '0';
+    this.overlayEl.style.width = '100%';
+    this.overlayEl.style.height = '100%';
+    this.overlayEl.style.backgroundColor = 'rgba(0, 0, 0, 0.7)'; // Dark semi-transparent
+    this.overlayEl.style.zIndex = '1000';
+    this.overlayEl.style.display = 'none'; // Hidden initially
+    this.overlayEl.style.justifyContent = 'center';
+    this.overlayEl.style.alignItems = 'center';
+    this.overlayEl.style.flexDirection = 'column';
+    (this.overlayEl.style as any).backdropFilter = 'blur(2px)';
+    this.overlayEl.style.color = '#fff';
+    this.overlayEl.style.textAlign = 'center';
+    this.overlayEl.style.padding = '20px';
+
+    // Add text and a button to the overlay
+    const msg = this.overlayEl.createEl('h3', { text: 'Editor Paused' });
+    msg.style.marginBottom = '10px';
+    this.overlayEl.createDiv({ text: 'The linked note is not currently active.' });
+
+    const jumpBtn = this.overlayEl.createEl('button', { text: 'Switch to Note' });
+    jumpBtn.style.marginTop = '15px';
+    jumpBtn.style.cursor = 'pointer';
+    jumpBtn.onclick = async () => {
+      if (this.associatedFilePath) {
+        const file = this.app.vault.getAbstractFileByPath(this.associatedFilePath);
+        if (file && file instanceof TFile) {
+          const leaf = this.app.workspace.getLeaf(false);
+          await leaf.openFile(file);
+        }
+      }
+    };
+
 
     const header = container.createDiv({ cls: 'abc-editor-view-header' });
     header.createEl('h4', { text: 'ABC Music Code Editor' });
@@ -250,6 +290,11 @@ export class AbcEditorView extends ItemView {
     this.isDirty = false;
   }
 
+  setObscured(obscured: boolean): void {
+    if (this.overlayEl) {
+      this.overlayEl.style.display = obscured ? 'flex' : 'none';
+    }
+  }
   // Called by the plugin to load content
   setContent(
     content: string,
