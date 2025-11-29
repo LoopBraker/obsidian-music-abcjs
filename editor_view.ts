@@ -106,6 +106,9 @@ export class AbcEditorView extends ItemView {
   private isDirty: boolean = false;
   private isProgrammaticChange: boolean = false;
 
+  // PATH
+  public associatedFilePath: string | null = null; // Path to the file this editor is associated with
+
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
   }
@@ -254,6 +257,13 @@ export class AbcEditorView extends ItemView {
     onSave: (content: string) => Promise<void>,
     onSelectionChange?: (startChar: number, endChar: number) => void
   ): void {
+
+    // We assume the user is on the note when they click to open the editor
+    const activeFile = this.app.workspace.getActiveFile();
+    if (activeFile) {
+      this.associatedFilePath = activeFile.path;
+    }
+
     this.onChange = onChange;
     this.onSave = onSave;
     this.onSelectionChange = onSelectionChange || null;

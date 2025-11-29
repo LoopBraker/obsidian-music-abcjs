@@ -1,4 +1,4 @@
-import { MarkdownPostProcessorContext, Plugin } from 'obsidian';
+import { MarkdownPostProcessorContext, Plugin, MarkdownView } from 'obsidian';
 import { PLAYBACK_CONTROLS_ID } from './cfg';
 import { PlaybackElement } from './playback_element';
 import { AbcEditorView, ABC_EDITOR_VIEW_TYPE } from './editor_view';
@@ -29,6 +29,33 @@ export default class MusicPlugin extends Plugin {
 				this.refreshEditorTheme();
 			})
 		);
+
+		// Automatically close the editor if the associated note is closed
+		this.registerEvent(
+			this.app.workspace.on('layout-change', () => {
+				// 1. Find the ABC Editor View
+				const leaves = this.app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+				if (leaves.length === 0) return;
+
+				const abcLeaf = leaves[0];
+				const view = abcLeaf.view as AbcEditorView;
+
+				// 2. If the view has a linked file path
+				if (view && view.associatedFilePath) {
+					// 3. Search all open Markdown leaves to see if that file is still open
+					const isFileStillOpen = this.app.workspace.getLeavesOfType('markdown').some(leaf => {
+						const mdView = leaf.view as MarkdownView;
+						return mdView.file && mdView.file.path === view.associatedFilePath;
+					});
+
+					// 4. If the file is not open anywhere, close the editor view
+					if (!isFileStillOpen) {
+						abcLeaf.detach();
+					}
+				}
+			})
+		);
+
 
 		// Although unused by us, a valid DOM element is needed to create a SynthController
 		const unusedPlaybackControls = document.createElement('aside');
