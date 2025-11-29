@@ -30,25 +30,22 @@ export default class MusicPlugin extends Plugin {
 			})
 		);
 
-		// Automatically close the editor if the associated note is closed
+		// 2. NEW: Handle Focus Changes (Obscure/Unobscure)
+		// 1. AUTO-CLOSE: Close editor if note is closed
 		this.registerEvent(
 			this.app.workspace.on('layout-change', () => {
-				// 1. Find the ABC Editor View
 				const leaves = this.app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
 				if (leaves.length === 0) return;
 
 				const abcLeaf = leaves[0];
 				const view = abcLeaf.view as AbcEditorView;
 
-				// 2. If the view has a linked file path
 				if (view && view.associatedFilePath) {
-					// 3. Search all open Markdown leaves to see if that file is still open
 					const isFileStillOpen = this.app.workspace.getLeavesOfType('markdown').some(leaf => {
 						const mdView = leaf.view as MarkdownView;
 						return mdView.file && mdView.file.path === view.associatedFilePath;
 					});
 
-					// 4. If the file is not open anywhere, close the editor view
 					if (!isFileStillOpen) {
 						abcLeaf.detach();
 					}
@@ -56,7 +53,29 @@ export default class MusicPlugin extends Plugin {
 			})
 		);
 
-		// 2. NEW: Handle Focus Changes (Obscure/Unobscure)
+		// 2. LOCK/UNLOCK: Handle Focus Changes
+		this.registerEvent(
+			this.app.workspace.on('layout-change', () => {
+				const leaves = this.app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+				if (leaves.length === 0) return;
+
+				const abcLeaf = leaves[0];
+				const view = abcLeaf.view as AbcEditorView;
+
+				if (view && view.associatedFilePath) {
+					const isFileStillOpen = this.app.workspace.getLeavesOfType('markdown').some(leaf => {
+						const mdView = leaf.view as MarkdownView;
+						return mdView.file && mdView.file.path === view.associatedFilePath;
+					});
+
+					if (!isFileStillOpen) {
+						abcLeaf.detach();
+					}
+				}
+			})
+		);
+
+		// 2. LOCK/UNLOCK: Handle Focus Changes
 		this.registerEvent(
 			this.app.workspace.on('active-leaf-change', (leaf) => {
 				// Find our editor view
@@ -66,35 +85,29 @@ export default class MusicPlugin extends Plugin {
 				const abcLeaf = abcLeaves[0];
 				const view = abcLeaf.view as AbcEditorView;
 
-				// If editor hasn't been linked to a file yet, ignore
 				if (!view.associatedFilePath) return;
 
-				// --- THE CRITICAL LOGIC ---
+				// Update strict mode from settings
+				view.updateOverlayMode(this.settings.restrictEditorToActiveNote);
 
-				// Case A: The user clicked the ABC Editor itself.
-				// We MUST keep it unlocked so they can type.
+				// Case A: User clicked Editor. 
+				// The view handles the click logic (click-to-dismiss) if restrictMode is false.
 				if (leaf && leaf.view.getViewType() === ABC_EDITOR_VIEW_TYPE) {
-					view.setObscured(false);
 					return;
 				}
 
-				// Case B: The user clicked a Markdown file.
-				// Is it the linked file?
+				// Case B: User clicked a Markdown file.
 				if (leaf && leaf.view instanceof MarkdownView) {
 					const mdView = leaf.view as MarkdownView;
 					if (mdView.file && mdView.file.path === view.associatedFilePath) {
-						// User went back to the source note -> Unlock
-						view.setObscured(false);
+						view.setObscured(false); // UNLOCK
 					} else {
-						// User went to a DIFFERENT note -> Lock
-						view.setObscured(true);
+						view.setObscured(true);  // LOCK (Show Overlay)
 					}
 					return;
 				}
 
-				// Case C: User clicked something else entirely (Graph view, Settings, etc)
-				// We generally want to lock it to avoid confusion, 
-				// but we check if the leaf is valid first.
+				// Case C: Other (Settings, Graph) -> Lock
 				if (leaf) {
 					view.setObscured(true);
 				}
@@ -257,6 +270,18 @@ export default class MusicPlugin extends Plugin {
 				view.refreshVisualizer();
 			}
 		});
+	}
+
+	refreshEditorLocking() {
+		// Update the mode for all active editors immediately
+		const strict = this.settings.restrictEditorToActiveNote;
+		this.app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE).forEach(leaf => {
+			(leaf.view as AbcEditorView).updateOverlayMode(strict);
+		});
+
+		// Trigger a layout check to apply current obscuration state
+		const activeLeaf = this.app.workspace.getLeaf(false);
+		this.app.workspace.trigger('active-leaf-change', activeLeaf);
 	}
 
 	async codeProcessor(source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) {

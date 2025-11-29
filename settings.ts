@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, TFolder, TAbstractFile } from 'obsidian';
+import { App, PluginSettingTab, Setting, TFolder } from 'obsidian';
 import MusicPlugin from './main';
 
 class FolderSuggest {
@@ -113,6 +113,8 @@ export interface MusicPluginSettings {
   darkTheme: 'oneDark' | 'solarizedDark';
   lightTheme: 'solarizedLight';
   showBarVisualizer: boolean;
+  // NEW: Setting to control locking behavior
+  restrictEditorToActiveNote: boolean;
 }
 
 export const DEFAULT_SETTINGS: MusicPluginSettings = {
@@ -120,7 +122,9 @@ export const DEFAULT_SETTINGS: MusicPluginSettings = {
   templatesFolder: '',
   darkTheme: 'oneDark',
   lightTheme: 'solarizedLight',
-  showBarVisualizer: true
+  showBarVisualizer: true,
+  // Default to true (protection on)
+  restrictEditorToActiveNote: true
 };
 
 export const SOUND_FONT_DESCRIPTIONS = {
@@ -172,7 +176,6 @@ export class MusicSettingTab extends PluginSettingTab {
         .onChange(async (value: 'oneDark' | 'solarizedDark') => {
           this.plugin.settings.darkTheme = value;
           await this.plugin.saveSettings();
-          // Refresh editor if open
           this.plugin.refreshEditorTheme();
         }));
 
@@ -185,7 +188,6 @@ export class MusicSettingTab extends PluginSettingTab {
         .onChange(async (value: 'solarizedLight') => {
           this.plugin.settings.lightTheme = value;
           await this.plugin.saveSettings();
-          // Refresh editor if open
           this.plugin.refreshEditorTheme();
         }));
 
@@ -200,6 +202,20 @@ export class MusicSettingTab extends PluginSettingTab {
           this.plugin.refreshVisualizer();
         }));
 
+    // --- NEW SETTING ---
+    new Setting(containerEl)
+      .setName('Restrict Editor to Active Note')
+      .setDesc('If enabled, the editor will be obscured with a warning when you navigate away from the linked note.')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.restrictEditorToActiveNote)
+        .onChange(async (value) => {
+          this.plugin.settings.restrictEditorToActiveNote = value;
+          await this.plugin.saveSettings();
+          // Force a refresh of the lock state immediately
+          this.plugin.refreshEditorLocking();
+        }));
+    // -------------------
+
     new Setting(containerEl)
       .setName('Templates Folder')
       .setDesc('Folder containing ABC music templates (markdown files with music-abc code blocks)')
@@ -212,7 +228,6 @@ export class MusicSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           });
 
-        // Add folder suggester
         this.folderSuggest = new FolderSuggest(
           this.app,
           text.inputEl,

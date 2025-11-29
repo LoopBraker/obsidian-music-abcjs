@@ -108,7 +108,10 @@ export class AbcEditorView extends ItemView {
 
   // PATH
   public associatedFilePath: string | null = null; // Path to the file this editor is associated with
+  public restrictMode: boolean = true; // <--- NEW FLAG from settings
   private overlayEl: HTMLElement | null = null;
+  private overlayMessageEl: HTMLElement | null = null;
+  private overlaySubtextEl: HTMLElement | null = null; // Subtext for "Caution"
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -138,7 +141,7 @@ export class AbcEditorView extends ItemView {
     this.overlayEl.style.left = '0';
     this.overlayEl.style.width = '100%';
     this.overlayEl.style.height = '100%';
-    this.overlayEl.style.backgroundColor = 'rgba(0, 0, 0, 0.7)'; // Dark semi-transparent
+    this.overlayEl.style.backgroundColor = 'rgba(0, 0, 0, 0.1)'; // Dark semi-transparent
     this.overlayEl.style.zIndex = '1000';
     this.overlayEl.style.display = 'none'; // Hidden initially
     this.overlayEl.style.justifyContent = 'center';
@@ -149,23 +152,31 @@ export class AbcEditorView extends ItemView {
     this.overlayEl.style.textAlign = 'center';
     this.overlayEl.style.padding = '20px';
 
+    this.overlayEl.onclick = (e) => {
+      // If we are NOT in restrict mode (Caution mode), allow dismissal
+      if (!this.restrictMode) {
+        this.setObscured(false);
+        e.stopPropagation(); // Prevent passing click to editor immediately
+      }
+    };
+
     // Add text and a button to the overlay
     const msg = this.overlayEl.createEl('h3', { text: 'Editor Paused' });
     msg.style.marginBottom = '10px';
     this.overlayEl.createDiv({ text: 'The linked note is not currently active.' });
 
-    const jumpBtn = this.overlayEl.createEl('button', { text: 'Switch to Note' });
-    jumpBtn.style.marginTop = '15px';
-    jumpBtn.style.cursor = 'pointer';
-    jumpBtn.onclick = async () => {
-      if (this.associatedFilePath) {
-        const file = this.app.vault.getAbstractFileByPath(this.associatedFilePath);
-        if (file && file instanceof TFile) {
-          const leaf = this.app.workspace.getLeaf(false);
-          await leaf.openFile(file);
-        }
-      }
-    };
+    // Subtext we can update
+    this.overlaySubtextEl = this.overlayEl.createDiv({ text: 'The linked note is not currently active.' });
+
+    this.overlayMessageEl = this.overlayEl.createDiv({ cls: 'abc-overlay-message' });
+    this.overlayMessageEl.style.marginTop = '20px';
+    this.overlayMessageEl.style.padding = '8px 16px';
+    this.overlayMessageEl.style.backgroundColor = 'rgba(255, 255, 255, 0.15)'; // Light translucent bg
+    this.overlayMessageEl.style.borderRadius = '6px';
+    this.overlayMessageEl.style.fontWeight = 'bold';
+    this.overlayMessageEl.style.fontSize = '1.1em';
+    this.overlayMessageEl.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+    this.overlayMessageEl.innerText = "Please switch to the linked note"; // Default text
 
 
     const header = container.createDiv({ cls: 'abc-editor-view-header' });
@@ -290,6 +301,19 @@ export class AbcEditorView extends ItemView {
     this.isDirty = false;
   }
 
+  updateOverlayMode(strict: boolean) {
+    this.restrictMode = strict;
+    if (this.overlaySubtextEl) {
+      if (strict) {
+        this.overlaySubtextEl.innerText = 'The linked note is not currently active.';
+        if (this.overlayEl) this.overlayEl.style.cursor = 'default';
+      } else {
+        this.overlaySubtextEl.innerText = 'Caution: Linked note is inactive. Click to edit anyway.';
+        if (this.overlayEl) this.overlayEl.style.cursor = 'pointer';
+      }
+    }
+  }
+
   setObscured(obscured: boolean): void {
     if (this.overlayEl) {
       this.overlayEl.style.display = obscured ? 'flex' : 'none';
@@ -307,6 +331,10 @@ export class AbcEditorView extends ItemView {
     const activeFile = this.app.workspace.getActiveFile();
     if (activeFile) {
       this.associatedFilePath = activeFile.path;
+
+      if (this.overlayMessageEl) {
+        this.overlayMessageEl.innerText = `Switch to '${activeFile.basename}'`;
+      }
     }
 
     this.onChange = onChange;
