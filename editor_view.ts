@@ -560,7 +560,8 @@ export class AbcEditorView extends ItemView {
       to: context.pos,
       options: filteredOptions.map(opt => {
         const degree = parseInt(opt.degree);
-        const chordString = this.generateChordStringForCompletion(root, mode, degree, opt.modifier);
+        const is8vaEnabled = this.chordButtonBar?.is8vaEnabled || false;
+        const chordString = this.generateChordStringForCompletion(root, mode, degree, opt.modifier, is8vaEnabled);
 
         // Get roman numeral notation (like chord buttons)
         const romanNumeral = this.getRomanNumeralForChord(degree, mode, opt.modifier);
@@ -612,7 +613,7 @@ export class AbcEditorView extends ItemView {
   }
 
   // Helper to generate chord strings for the completion
-  private generateChordStringForCompletion(root: string, mode: 'major' | 'minor', degree: number, modifier: string): string {
+  private generateChordStringForCompletion(root: string, mode: 'major' | 'minor', degree: number, modifier: string, is8vaEnabled: boolean): string {
     const rootIdx = degree - 1;
     const indices = [rootIdx, (rootIdx + 2) % 7, (rootIdx + 4) % 7]; // Triad base
 
@@ -667,14 +668,16 @@ export class AbcEditorView extends ItemView {
     const adjustedValues = [...noteValues];
 
     // Adjust octaves to ensure ascending order
-    for (let i = 1; i < adjustedValues.length; i++) {
-      while (adjustedValues[i] <= adjustedValues[i - 1]) {
-        adjustedValues[i] += 12;
+    if (!is8vaEnabled) {
+      for (let i = 1; i < adjustedValues.length; i++) {
+        while (adjustedValues[i] <= adjustedValues[i - 1]) {
+          adjustedValues[i] += 12;
+        }
       }
     }
 
     // For add chords, ensure the added note is at least an octave up
-    if (modifier.startsWith('+')) {
+    if (!is8vaEnabled && modifier.startsWith('+')) {
       const lastIdx = adjustedValues.length - 1;
       while (adjustedValues[lastIdx] < adjustedValues[0] + 12) {
         adjustedValues[lastIdx] += 12;

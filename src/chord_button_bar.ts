@@ -10,6 +10,11 @@ export class ChordButtonBar {
     private currentKey: string = 'C';
     private currentExtension: 'triad' | '7' | '9' | '11' | '13' = 'triad';
     private isAddMode: boolean = false;
+    private _is8vaEnabled: boolean = false;
+
+    get is8vaEnabled(): boolean {
+        return this._is8vaEnabled;
+    }
 
     constructor(parent: HTMLElement, private editorViewGetter: () => EditorView | null) {
         this.container = parent.createDiv({ cls: 'abc-chord-button-bar-wrapper' });
@@ -143,6 +148,23 @@ export class ChordButtonBar {
                 this.renderModifierButtons(); // Re-render to update active state
                 // No need to re-render chord buttons if logic is dynamic on click
             });
+        });
+
+        // Add "8va" Toggle Button
+        const vaBtn = this.modifierContainer.createEl('button', {
+            text: '8va',
+            cls: 'abc-chord-modifier-btn'
+        });
+        vaBtn.style.fontSize = '12px';
+        vaBtn.style.padding = '2px 8px';
+        vaBtn.style.cursor = 'pointer';
+        vaBtn.style.backgroundColor = this._is8vaEnabled ? 'var(--interactive-accent)' : 'var(--background-primary)';
+        vaBtn.style.color = this._is8vaEnabled ? 'var(--text-on-accent)' : 'var(--text-normal)';
+        vaBtn.style.border = '1px solid var(--background-modifier-border)';
+        vaBtn.style.borderRadius = '4px';
+        vaBtn.addEventListener('click', () => {
+            this._is8vaEnabled = !this._is8vaEnabled;
+            this.renderModifierButtons();
         });
 
         // Add "Add" Button
@@ -360,15 +382,17 @@ export class ChordButtonBar {
         // But we need to accumulate +12s.
         // If we add 12 to 3rd, 5th is compared        // Adjust octaves
         let currentOctaveOffset = 0;
-        for (let i = 1; i < adjustedValues.length; i++) {
-            while (adjustedValues[i] <= adjustedValues[i - 1]) {
-                adjustedValues[i] += 12;
+        if (!this._is8vaEnabled) {
+            for (let i = 1; i < adjustedValues.length; i++) {
+                while (adjustedValues[i] <= adjustedValues[i - 1]) {
+                    adjustedValues[i] += 12;
+                }
             }
         }
 
         // Add Mode Octave Boost
         // Ensure 9, 11, 13 are at least root + 12 (compound intervals)
-        if (this.isAddMode && (this.currentExtension === '9' || this.currentExtension === '11' || this.currentExtension === '13')) {
+        if (!this._is8vaEnabled && this.isAddMode && (this.currentExtension === '9' || this.currentExtension === '11' || this.currentExtension === '13')) {
             const lastIdx = adjustedValues.length - 1;
             while (adjustedValues[lastIdx] < adjustedValues[0] + 12) {
                 adjustedValues[lastIdx] += 12;
