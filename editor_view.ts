@@ -46,49 +46,7 @@ function findKeyAtPos(state: EditorState, pos: number): string {
   return 'C'; // Default
 }
 
-const scaleDegreeExpander = EditorState.transactionFilter.of(tr => {
-  if (!tr.isUserEvent('input')) return tr;
-
-  let modified = false;
-  const newChanges: any[] = [];
-
-  tr.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
-    if (inserted.toString() === " ") {
-      const before = tr.startState.doc.sliceString(Math.max(0, fromA - 3), fromA);
-      const match = before.match(/\.([1-7])([_#])?$/);
-      if (match) {
-        const degree = parseInt(match[1]);
-        const accidental = match[2];
-        const keySig = findKeyAtPos(tr.startState, fromA);
-        const { root, mode } = parseKey(keySig);
-        let note = getScaleNote(root, mode, degree);
-
-        if (accidental === '_') {
-          note = transposeABC(note, -1);
-        } else if (accidental === '#') {
-          note = transposeABC(note, 1);
-        }
-
-        // Replace .N[acc] with Note (consume the space)
-        const matchLen = match[0].length;
-        newChanges.push({ from: fromA - matchLen, to: fromA, insert: note });
-        modified = true;
-      } else {
-        newChanges.push({ from: fromA, to: toA, insert: inserted });
-      }
-    } else {
-      newChanges.push({ from: fromA, to: toA, insert: inserted });
-    }
-  });
-
-  if (modified) {
-    return {
-      changes: newChanges,
-      scrollIntoView: true
-    };
-  }
-  return tr;
-});
+// Old scaleDegreeExpander removed - now using auto-suggestion instead
 
 const toggleAbcComment = (view: EditorView): boolean => {
   const { state } = view;
@@ -186,8 +144,7 @@ export class AbcEditorView extends ItemView {
         doc: "", // Start empty
         extensions: [
           this.currentTheme,
-          scaleDegreeExpander,
-          abc([this.templateCompletionSource.bind(this)]),
+          abc([this.templateCompletionSource.bind(this), this.scaleDegreeCompletionSource.bind(this)]),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           abcFoldService,
           foldGutter(),
@@ -407,6 +364,75 @@ export class AbcEditorView extends ItemView {
     };
   }
 
+  // Scale degree autosuggestion source
+  private async scaleDegreeCompletionSource(context: CompletionContext): Promise<CompletionResult | null> {
+    const textBefore = context.state.doc.sliceString(Math.max(0, context.pos - 10), context.pos);
+    const match = textBefore.match(/\.([1-7]?)([_#]?)$/);
+
+    if (!match) return null;
+
+    const typedDegree = match[1];
+    const typedAccidental = match[2];
+
+    // Build all possible options
+    const degrees = ['1', '2', '3', '4', '5', '6', '7'];
+    const accidentals = ['', '_', '#'];
+    const allOptions: Array<{ degree: string, accidental: string }> = [];
+
+    for (const deg of degrees) {
+      for (const acc of accidentals) {
+        allOptions.push({ degree: deg, accidental: acc });
+      }
+    }
+
+    // Filter options based on what user has typed
+    const filteredOptions = allOptions.filter(opt => {
+      if (typedDegree && !opt.degree.startsWith(typedDegree)) return false;
+      if (typedAccidental && opt.accidental !== typedAccidental) return false;
+      return true;
+    });
+
+    if (filteredOptions.length === 0) return null;
+
+    // Get the key signature at cursor position
+    const keySig = findKeyAtPos(context.state, context.pos);
+    const { root, mode } = parseKey(keySig);
+
+    const matchStart = context.pos - match[0].length;
+
+    return {
+      from: matchStart,
+      to: context.pos,
+      options: filteredOptions.map(opt => {
+        const degreeNum = parseInt(opt.degree);
+        let note = getScaleNote(root, mode, degreeNum);
+
+        // Apply accidental
+        if (opt.accidental === '_') {
+          note = transposeABC(note, -1);
+        } else if (opt.accidental === '#') {
+          note = transposeABC(note, 1);
+        }
+
+        const displayLabel = `${opt.degree}${opt.accidental}`;
+
+        return {
+          label: `.${displayLabel}`,
+          displayLabel: displayLabel,
+          detail: `→ ${note}`,
+          type: 'text',
+          apply: (view, completion, from, to) => {
+            view.dispatch({
+              changes: { from, to, insert: note },
+              selection: EditorSelection.cursor(from + note.length)
+            });
+          }
+        };
+      }),
+      filter: false // We handle filtering ourselves
+    };
+  }
+
   private getTheme(): any {
     const app = this.app as any;
     const plugin = app.plugins?.plugins?.['music-code-blocks'];
@@ -462,8 +488,7 @@ export class AbcEditorView extends ItemView {
         selection: selection,
         extensions: [
           this.currentTheme,
-          scaleDegreeExpander,
-          abc([this.templateCompletionSource.bind(this)]),
+          abc([this.templateCompletionSource.bind(this), this.scaleDegreeCompletionSource.bind(this)]),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           abcFoldService,
           foldGutter(),
