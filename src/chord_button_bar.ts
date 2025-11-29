@@ -42,6 +42,7 @@ export class ChordButtonBar {
         this.modifierContainer = this.container.createDiv({ cls: 'abc-chord-modifier-container' });
         this.modifierContainer.style.display = 'flex';
         this.modifierContainer.style.justifyContent = 'center';
+        this.modifierContainer.style.alignItems = 'center'; // Align toggle with buttons
         this.modifierContainer.style.gap = '5px';
         this.modifierContainer.style.marginTop = '5px';
 
@@ -122,6 +123,48 @@ export class ChordButtonBar {
 
     private renderModifierButtons() {
         this.modifierContainer.empty();
+
+        // --- NEW: 8va Toggle Switch (Left Side) ---
+        const vaWrapper = this.modifierContainer.createDiv();
+        vaWrapper.style.display = 'flex';
+        vaWrapper.style.alignItems = 'center';
+        vaWrapper.style.gap = '6px';
+        vaWrapper.style.marginRight = '8px'; // Extra spacing before Triad button
+        vaWrapper.style.cursor = 'pointer';
+
+        // 8va Label
+        const vaLabel = vaWrapper.createEl('span', { text: '8va' });
+        vaLabel.style.fontSize = '12px';
+        vaLabel.style.color = 'var(--text-normal)';
+        vaLabel.style.fontWeight = 'bold'; // Optional: make label slightly bolder
+
+        // Toggle Switch Track
+        const switchTrack = vaWrapper.createDiv();
+        switchTrack.style.width = '28px';
+        switchTrack.style.height = '16px';
+        switchTrack.style.borderRadius = '10px';
+        switchTrack.style.position = 'relative';
+        switchTrack.style.backgroundColor = this._is8vaEnabled ? 'var(--interactive-accent)' : 'var(--background-modifier-border)';
+        switchTrack.style.transition = 'background-color 0.2s ease';
+
+        // Toggle Switch Knob
+        const switchKnob = switchTrack.createDiv();
+        switchKnob.style.width = '12px';
+        switchKnob.style.height = '12px';
+        switchKnob.style.borderRadius = '50%';
+        switchKnob.style.backgroundColor = '#ffffff'; // White knob for contrast
+        switchKnob.style.position = 'absolute';
+        switchKnob.style.top = '2px';
+        switchKnob.style.left = this._is8vaEnabled ? '14px' : '2px'; // Slide logic
+        switchKnob.style.transition = 'left 0.2s ease';
+
+        // Click Handler
+        vaWrapper.addEventListener('click', () => {
+            this._is8vaEnabled = !this._is8vaEnabled;
+            this.renderModifierButtons();
+        });
+        // ------------------------------------------
+
         const extensions: ('triad' | '7' | '9' | '11' | '13')[] = ['triad', '7', '9', '11', '13'];
 
         extensions.forEach(ext => {
@@ -130,7 +173,6 @@ export class ChordButtonBar {
                 cls: 'abc-chord-modifier-btn'
             });
 
-            // Style matching "font size the same of the name of the chords below the chord buttons" (approx 12px)
             btn.style.fontSize = '12px';
             btn.style.padding = '2px 8px';
             btn.style.cursor = 'pointer';
@@ -145,26 +187,8 @@ export class ChordButtonBar {
                 if (ext === 'triad' || ext === '7') {
                     this.isAddMode = false;
                 }
-                this.renderModifierButtons(); // Re-render to update active state
-                // No need to re-render chord buttons if logic is dynamic on click
+                this.renderModifierButtons();
             });
-        });
-
-        // Add "8va" Toggle Button
-        const vaBtn = this.modifierContainer.createEl('button', {
-            text: '8va',
-            cls: 'abc-chord-modifier-btn'
-        });
-        vaBtn.style.fontSize = '12px';
-        vaBtn.style.padding = '2px 8px';
-        vaBtn.style.cursor = 'pointer';
-        vaBtn.style.backgroundColor = this._is8vaEnabled ? 'var(--interactive-accent)' : 'var(--background-primary)';
-        vaBtn.style.color = this._is8vaEnabled ? 'var(--text-on-accent)' : 'var(--text-normal)';
-        vaBtn.style.border = '1px solid var(--background-modifier-border)';
-        vaBtn.style.borderRadius = '4px';
-        vaBtn.addEventListener('click', () => {
-            this._is8vaEnabled = !this._is8vaEnabled;
-            this.renderModifierButtons();
         });
 
         // Add "Add" Button
@@ -298,11 +322,6 @@ export class ChordButtonBar {
 
         if (this.isAddMode) {
             // Non-cumulative logic
-            // Triad is already added.
-            // If 9, add 9 (skip 7)
-            // If 11, add 11 (skip 7, 9)
-            // If 13, add 13 (skip 7, 9, 11)
-
             if (this.currentExtension === '9') {
                 indices.push((rootIdx + 8) % 7); // 9th
             } else if (this.currentExtension === '11') {
@@ -310,8 +329,6 @@ export class ChordButtonBar {
             } else if (this.currentExtension === '13') {
                 indices.push((rootIdx + 12) % 7); // 13th
             }
-            // If 7, isAddMode should be false/disabled, but if it was somehow true, we just add 7?
-            // But logic says disable Add for 7.
         } else {
             // Cumulative logic
             if (this.currentExtension === '7' || this.currentExtension === '9' || this.currentExtension === '11' || this.currentExtension === '13') {
@@ -349,38 +366,6 @@ export class ChordButtonBar {
         const adjustedValues = [...noteValues];
 
         // Adjust octaves
-        // We need to ensure strictly increasing pitch relative to root.
-        // But for extensions (9, 11, 13), they are naturally higher than 7.
-        // However, since we use modulo 7 indices, getScaleNote returns base octave notes.
-        // So we need to add 12 for every "wrap" around the scale?
-        // Or just ensure each note is higher than the previous.
-
-        // Root is base.
-        // 3rd: if < root, +12.
-        // 5th: if < 3rd, +12.
-        // 7th: if < 5th, +12.
-        // 9th: if < 7th, +12.
-        // etc.
-
-        // Wait, 9th is 2nd degree. 2nd is usually < 7th (in base octave).
-        // So 9th will definitely need +12 relative to root?
-        // Actually, just ensuring strictly increasing is enough?
-        // Example: C Major.
-        // Root C(0). 3rd E(4). 5th G(7). 7th B(11). 9th D(2).
-        // 2 < 11 -> add 12 -> 14. Correct (D above middle C).
-        // 11th F(5). 5 < 14 -> add 12 -> 17. Correct.
-        // 13th A(9). 9 < 17 -> add 12 -> 21. Correct.
-
-        // But what if 3rd wraps?
-        // B Locrian: B(11), D(2), F(5).
-        // Root 11.
-        // 3rd 2 < 11 -> 14.
-        // 5th 5 < 14 -> 17.
-        // Correct.
-
-        // So the logic "if val < prevVal, add 12" works for simple stacking.
-        // But we need to accumulate +12s.
-        // If we add 12 to 3rd, 5th is compared        // Adjust octaves
         let currentOctaveOffset = 0;
         if (!this._is8vaEnabled) {
             for (let i = 1; i < adjustedValues.length; i++) {
@@ -406,25 +391,12 @@ export class ChordButtonBar {
             const base = match[2];
 
             if (val >= 12) {
-                // If val is very high (e.g. 24+), we might need 'c' (12-23), 'c'' (24-35)?
-                // ABC notation:
-                // C, (low)
-                // C (middle)
-                // c (high)
-                // c' (very high)
-
-                // Our base assumption: Root is in C-B range (0-11 approx).
-                // If val >= 12 and < 24: lowercase (c-b).
-                // If val >= 24: lowercase + ' (c'-b').
-
                 let suffix = '';
                 let isLower = false;
 
                 if (val >= 12) {
                     isLower = true;
                     const octavesAbove = Math.floor((val - 12) / 12);
-                    // 12-23: 0 octaves above 'c' -> suffix ''
-                    // 24-35: 1 octave above 'c' -> suffix "'"
                     for (let k = 0; k < octavesAbove; k++) suffix += "'";
                 }
 
