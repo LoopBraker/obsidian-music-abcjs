@@ -8,15 +8,17 @@ export class BarVisualizer {
 
     constructor(parent: HTMLElement) {
         this.container = parent.createDiv({ cls: 'abc-bar-visualizer-container' });
-        this.container.style.marginBottom = '10px';
+        this.container.style.marginBottom = '0.3em';
+        this.container.style.marginTop = '10px';
         this.container.style.display = 'flex';
         this.container.style.flexDirection = 'column';
-        this.container.style.gap = '5px';
+        this.container.style.gap = '0.3em';
 
         // Header for info
         const header = this.container.createDiv({ cls: 'abc-bar-info' });
-        header.style.fontSize = '0.8em';
+        header.style.fontSize = '0.6em';
         header.style.color = 'var(--text-muted)';
+        header.style.fontFamily = 'sans-serif';
         // Height matching font size? 
         // User said: "height should be as the height of the font above it, i mean the font of the text 'Time:...'"
         // Font size is 0.8em. Let's assume approx 14px or use '1em' relative to this container.
@@ -25,7 +27,7 @@ export class BarVisualizer {
         this.barContainer = this.container.createDiv({ cls: 'abc-bar-visuals' });
         this.barContainer.style.display = 'flex';
         this.barContainer.style.gap = '2px';
-        this.barContainer.style.height = '1.2em'; // Match font height roughly (0.8em * 1.5 line height approx?) or just use same size
+        this.barContainer.style.height = '0.8em'; // Match font height roughly (0.8em * 1.5 line height approx?) or just use same size
         this.barContainer.style.width = '100%';
         // Background removed or transparent? User didn't specify container bg, just rectangles.
         // But previously it had bg. Let's keep it clean.

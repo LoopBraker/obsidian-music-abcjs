@@ -21,11 +21,13 @@ export class ChordButtonBar {
         this.container.style.display = 'flex';
         this.container.style.flexDirection = 'column';
         this.container.style.marginBottom = '10px';
+        this.container.style.marginTop = '10px';
         this.container.style.gap = '5px';
 
         // Header
         this.header = this.container.createDiv({ cls: 'abc-chord-button-bar-header' });
-        this.header.style.marginLeft = '12px';
+        // this.header.style.marginLeft = '12px';
+        this.header.style.textAlign = 'center';
         this.header.style.fontSize = '12px';
         this.header.style.color = 'var(--text-normal)';
         this.header.style.fontFamily = 'sans-serif';
@@ -44,7 +46,7 @@ export class ChordButtonBar {
         this.modifierContainer.style.justifyContent = 'center';
         this.modifierContainer.style.alignItems = 'center'; // Align toggle with buttons
         this.modifierContainer.style.gap = '5px';
-        this.modifierContainer.style.marginTop = '5px';
+        this.modifierContainer.style.marginTop = '0px';
 
         this.renderModifierButtons();
     }
@@ -301,7 +303,7 @@ export class ChordButtonBar {
         if (quality === 'dim') labelQuality = '°';
 
         labelDiv.innerHTML = `
-        <svg height="30" width="50" viewBox="0 0 50 30">
+        <svg height="15" width="50" viewBox="0 0 50 15">
             <text x="25" y="11" fill="${textFill}" text-anchor="middle" dominant-baseline="middle" font-size="24" transform="translate(12, 5) scale(0.5)">
                 <tspan>${displayRoot}</tspan>
                 <tspan font-size="20" dy="-5">${labelQuality}</tspan>
@@ -431,7 +433,7 @@ export class ChordButtonBar {
 
         const labelDiv = container.createDiv();
         labelDiv.innerHTML = `
-        <svg height="30" width="50" viewBox="0 0 50 30">
+        <svg height="15" width="50" viewBox="0 0 50 15">
             <text x="25" y="11" fill="${textFill}" text-anchor="middle" dominant-baseline="middle" font-size="24" transform="translate(12, 5) scale(0.5)">
                 <tspan>rest</tspan>
             </text>
