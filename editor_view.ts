@@ -144,7 +144,7 @@ export class AbcEditorView extends ItemView {
         doc: "", // Start empty
         extensions: [
           this.currentTheme,
-          abc([this.templateCompletionSource.bind(this), this.scaleDegreeCompletionSource.bind(this)]),
+          abc([this.templateCompletionSource.bind(this), this.scaleDegreeCompletionSource.bind(this), this.chordCompletionSource.bind(this)]),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           abcFoldService,
           foldGutter(),
@@ -433,6 +433,183 @@ export class AbcEditorView extends ItemView {
     };
   }
 
+  // Chord autosuggestion source  
+  private async chordCompletionSource(context: CompletionContext): Promise<CompletionResult | null> {
+    const textBefore = context.state.doc.sliceString(Math.max(0, context.pos - 15), context.pos);
+    // Updated pattern: matches @1-7, @1-9, @1+9, etc.
+    const match = textBefore.match(/@([1-7]?)([-+]?)([79]|1[13])?$/);
+
+    if (!match) return null;
+
+    const typedDegree = match[1];        // e.g., "1"
+    const typedSeparator = match[2];     // e.g., "-" or "+"
+    const typedExtension = match[3];     // e.g., "7", "9", "11", "13"
+
+    // Build all chord options with new notation
+    const degrees = ['1', '2', '3', '4', '5', '6', '7'];
+    const modifiers = ['', '-7', '-9', '-11', '-13', '+9', '+11', '+13'];
+    const allOptions: Array<{ degree: string, modifier: string }> = [];
+
+    for (const deg of degrees) {
+      for (const mod of modifiers) {
+        allOptions.push({ degree: deg, modifier: mod });
+      }
+    }
+
+    // Enhanced filtering based on what user has typed
+    const filteredOptions = allOptions.filter(opt => {
+      // Filter by degree
+      if (typedDegree && !opt.degree.startsWith(typedDegree)) return false;
+
+      // Filter by separator and extension
+      if (typedSeparator === '-') {
+        // User typed "-", show only extended chords (-7, -9, -11, -13)
+        if (!opt.modifier.startsWith('-')) return false;
+        // If they also typed a number after -, filter by that too
+        if (typedExtension && !opt.modifier.substring(1).startsWith(typedExtension)) return false;
+      } else if (typedSeparator === '+') {
+        // User typed "+", show only add chords (+9, +11, +13)
+        if (!opt.modifier.startsWith('+')) return false;
+        // If they also typed a number after +, filter by that too
+        if (typedExtension && !opt.modifier.substring(1).startsWith(typedExtension)) return false;
+      } else if (typedSeparator === '') {
+        // No separator typed yet, show all options for this degree
+        // (but if they already typed a full modifier, match it)
+        if (typedExtension && !opt.modifier.startsWith(typedExtension)) return false;
+      }
+
+      return true;
+    });
+
+    if (filteredOptions.length === 0) return null;
+
+    // Get the key signature at cursor position
+    const keySig = findKeyAtPos(context.state, context.pos);
+    const { root, mode } = parseKey(keySig);
+
+    const matchStart = context.pos - match[0].length;
+
+    return {
+      from: matchStart,
+      to: context.pos,
+      options: filteredOptions.map(opt => {
+        const degree = parseInt(opt.degree);
+        const chordString = this.generateChordStringForCompletion(root, mode, degree, opt.modifier);
+
+        const displayLabel = `${opt.degree}${opt.modifier}`;
+        const modifierName = opt.modifier === '' ? 'triad' :
+          opt.modifier.startsWith('-') ? opt.modifier.substring(1) :
+            opt.modifier.startsWith('+') ? 'add' + opt.modifier.substring(1) :
+              opt.modifier;
+
+        return {
+          label: `@${displayLabel}`,
+          displayLabel: displayLabel,
+          detail: `→ ${chordString} (${modifierName})`,
+          type: 'text',
+          apply: (view, completion, from, to) => {
+            view.dispatch({
+              changes: { from, to, insert: chordString },
+              selection: EditorSelection.cursor(from + chordString.length)
+            });
+          }
+        };
+      }),
+      filter: false // We handle filtering ourselves
+    };
+  }
+
+  // Helper to generate chord strings for the completion
+  private generateChordStringForCompletion(root: string, mode: 'major' | 'minor', degree: number, modifier: string): string {
+    const rootIdx = degree - 1;
+    const indices = [rootIdx, (rootIdx + 2) % 7, (rootIdx + 4) % 7]; // Triad base
+
+    // Parse modifier - updated to handle new notation
+    if (modifier === '-7') {
+      indices.push((rootIdx + 6) % 7);
+    } else if (modifier === '-9') {
+      indices.push((rootIdx + 6) % 7); // 7th
+      indices.push((rootIdx + 8) % 7); // 9th (2nd)
+    } else if (modifier === '-11') {
+      indices.push((rootIdx + 6) % 7);  // 7th
+      indices.push((rootIdx + 8) % 7);  // 9th
+      indices.push((rootIdx + 10) % 7); // 11th (4th)
+    } else if (modifier === '-13') {
+      indices.push((rootIdx + 6) % 7);  // 7th
+      indices.push((rootIdx + 8) % 7);  // 9th
+      indices.push((rootIdx + 10) % 7); // 11th
+      indices.push((rootIdx + 12) % 7); // 13th (6th)
+    } else if (modifier === '+9') {
+      indices.push((rootIdx + 8) % 7);  // Just add 9th
+    } else if (modifier === '+11') {
+      indices.push((rootIdx + 10) % 7); // Just add 11th
+    } else if (modifier === '+13') {
+      indices.push((rootIdx + 12) % 7); // Just add 13th
+    }
+
+    // Get notes
+    const notes = indices.map(idx => getScaleNote(root, mode, idx + 1));
+
+    // Helper to get note value
+    const getNoteValue = (note: string) => {
+      const match = note.match(/^([\^=_]*)([A-G])$/);
+      if (!match) return 0;
+      const acc = match[1];
+      const base = match[2];
+      const NOTE_VALUES: { [key: string]: number } = {
+        'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11
+      };
+      const ACCIDENTALS: { [key: string]: number } = {
+        '^': 1, '_': -1, '=': 0
+      };
+      let val = NOTE_VALUES[base];
+      if (acc) {
+        for (const char of acc) {
+          if (ACCIDENTALS[char]) val += ACCIDENTALS[char];
+        }
+      }
+      return val;
+    };
+
+    const noteValues = notes.map(n => getNoteValue(n));
+    const adjustedValues = [...noteValues];
+
+    // Adjust octaves to ensure ascending order
+    for (let i = 1; i < adjustedValues.length; i++) {
+      while (adjustedValues[i] <= adjustedValues[i - 1]) {
+        adjustedValues[i] += 12;
+      }
+    }
+
+    // For add chords, ensure the added note is at least an octave up
+    if (modifier.startsWith('+')) {
+      const lastIdx = adjustedValues.length - 1;
+      while (adjustedValues[lastIdx] < adjustedValues[0] + 12) {
+        adjustedValues[lastIdx] += 12;
+      }
+    }
+
+    // Format notes with proper octave notation
+    const formatNote = (note: string, val: number) => {
+      const match = note.match(/^([\^=_]*)([A-G])$/);
+      if (!match) return note;
+      const acc = match[1];
+      const base = match[2];
+
+      if (val >= 12) {
+        let suffix = '';
+        const octavesAbove = Math.floor((val - 12) / 12);
+        for (let k = 0; k < octavesAbove; k++) suffix += "'";
+        return `${acc}${base.toLowerCase()}${suffix}`;
+      } else {
+        return `${acc}${base}`;
+      }
+    };
+
+    const formattedNotes = notes.map((n, i) => formatNote(n, adjustedValues[i]));
+    return `[${formattedNotes.join('')}]`;
+  }
+
   private getTheme(): any {
     const app = this.app as any;
     const plugin = app.plugins?.plugins?.['music-code-blocks'];
@@ -488,7 +665,7 @@ export class AbcEditorView extends ItemView {
         selection: selection,
         extensions: [
           this.currentTheme,
-          abc([this.templateCompletionSource.bind(this), this.scaleDegreeCompletionSource.bind(this)]),
+          abc([this.templateCompletionSource.bind(this), this.scaleDegreeCompletionSource.bind(this), this.chordCompletionSource.bind(this)]),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           abcFoldService,
           foldGutter(),
