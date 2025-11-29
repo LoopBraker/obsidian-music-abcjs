@@ -137,7 +137,7 @@ AssignmentValue {
 }
 
 textIdentifier { 
-  Word | SimpleNoteCapital | SimpleNoteLower | Rest | Spacing | SingleChar | Annotation | Duration | ComplexNote | SymbolDecoration 
+  Word | SimpleNoteCapital | SimpleNoteLower | Rest | Spacing | SingleChar | Annotation | Duration | ComplexNote | SymbolDecoration | Punctuation 
 }
 
 // === Directives ===
@@ -149,6 +149,7 @@ DirectiveLine {
   Newline { "\n" }
   Space { $[\t ]+ }
   EqualsWithSpaces { ($[\t ]+ "=" $[\t ]*) | ("=" $[\t ]*) }
+  Punctuation { "!"  | "*"  | "@" | "$" | "&" | "?" | ";" }
 
 
 

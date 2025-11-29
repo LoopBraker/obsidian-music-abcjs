@@ -428,6 +428,7 @@ function generateStyleTags() {
     "InfoVal/Duration": t.string,
     "InfoVal/ComplexNote": t.string,
     "InfoVal/Ornament": t.string,
+    "InfoVal/SymbolDecoration": t.string,
 
     // TimeSignatureLine
     "TimeSignatureLine/CommonTimeSignatures": t.number,
