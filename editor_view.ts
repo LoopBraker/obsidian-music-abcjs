@@ -493,13 +493,13 @@ export class AbcEditorView extends ItemView {
   // Chord autosuggestion source  
   private async chordCompletionSource(context: CompletionContext): Promise<CompletionResult | null> {
     const textBefore = context.state.doc.sliceString(Math.max(0, context.pos - 15), context.pos);
-    // Updated pattern: matches @1-7, @1-9, @1+9, etc.
+    // Enhanced pattern: matches @1-7, @1+9, AND fuzzy @19, @17, etc.
     const match = textBefore.match(/@([1-7]?)([-+]?)([79]|1[13])?$/);
 
     if (!match) return null;
 
     const typedDegree = match[1];        // e.g., "1"
-    const typedSeparator = match[2];     // e.g., "-" or "+"
+    const typedSeparator = match[2];     // e.g., "-" or "+" or ""
     const typedExtension = match[3];     // e.g., "7", "9", "11", "13"
 
     // Build all chord options with new notation
@@ -513,7 +513,7 @@ export class AbcEditorView extends ItemView {
       }
     }
 
-    // Enhanced filtering based on what user has typed
+    // Enhanced filtering with fuzzy search support
     const filteredOptions = allOptions.filter(opt => {
       // Filter by degree
       if (typedDegree && !opt.degree.startsWith(typedDegree)) return false;
@@ -529,10 +529,19 @@ export class AbcEditorView extends ItemView {
         if (!opt.modifier.startsWith('+')) return false;
         // If they also typed a number after +, filter by that too
         if (typedExtension && !opt.modifier.substring(1).startsWith(typedExtension)) return false;
+      } else if (typedSeparator === '' && typedExtension) {
+        // FUZZY SEARCH: User typed @19, @17, etc. (no separator)
+        // Match both extended and add versions
+        // e.g., @19 matches both -9 and +9
+        const extNum = typedExtension;
+        if (opt.modifier !== '' &&
+          !opt.modifier.endsWith(extNum)) {
+          return false;
+        }
+        // If it's a triad (no modifier), only show if no extension typed
+        if (opt.modifier === '') return false;
       } else if (typedSeparator === '') {
-        // No separator typed yet, show all options for this degree
-        // (but if they already typed a full modifier, match it)
-        if (typedExtension && !opt.modifier.startsWith(typedExtension)) return false;
+        // No separator, no extension - show all options for this degree
       }
 
       return true;
@@ -553,16 +562,15 @@ export class AbcEditorView extends ItemView {
         const degree = parseInt(opt.degree);
         const chordString = this.generateChordStringForCompletion(root, mode, degree, opt.modifier);
 
+        // Get roman numeral notation (like chord buttons)
+        const romanNumeral = this.getRomanNumeralForChord(degree, mode, opt.modifier);
+
         const displayLabel = `${opt.degree}${opt.modifier}`;
-        const modifierName = opt.modifier === '' ? 'triad' :
-          opt.modifier.startsWith('-') ? opt.modifier.substring(1) :
-            opt.modifier.startsWith('+') ? 'add' + opt.modifier.substring(1) :
-              opt.modifier;
 
         return {
           label: `@${displayLabel}`,
-          displayLabel: displayLabel,
-          detail: `→ ${chordString} (${modifierName})`,
+          displayLabel: romanNumeral,  // Show roman numeral!
+          detail: `→ ${chordString}`,
           type: 'text',
           apply: (view, completion, from, to) => {
             view.dispatch({
@@ -574,6 +582,33 @@ export class AbcEditorView extends ItemView {
       }),
       filter: false // We handle filtering ourselves
     };
+  }
+
+  // Get roman numeral notation for chord (matching chord button bar)
+  private getRomanNumeralForChord(degree: number, mode: 'major' | 'minor', modifier: string): string {
+    const majorRomans = ['I', 'ii', 'iii', 'IV', 'V', 'vi', 'vii°'];
+    const minorRomans = ['i', 'ii°', 'III', 'iv', 'v', 'VI', 'VII'];
+
+    let roman = mode === 'major' ? majorRomans[degree - 1] : minorRomans[degree - 1];
+
+    // Add chord extension notation
+    if (modifier === '-7') {
+      roman += '⁷';
+    } else if (modifier === '-9') {
+      roman += '⁹';
+    } else if (modifier === '-11') {
+      roman += '¹¹';
+    } else if (modifier === '-13') {
+      roman += '¹³';
+    } else if (modifier === '+9') {
+      roman += 'add9';
+    } else if (modifier === '+11') {
+      roman += 'add11';
+    } else if (modifier === '+13') {
+      roman += 'add13';
+    }
+
+    return roman;
   }
 
   // Helper to generate chord strings for the completion
