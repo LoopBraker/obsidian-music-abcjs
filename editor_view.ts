@@ -141,7 +141,7 @@ export class AbcEditorView extends ItemView {
     this.overlayEl.style.left = '0';
     this.overlayEl.style.width = '100%';
     this.overlayEl.style.height = '100%';
-    this.overlayEl.style.backgroundColor = 'rgba(0, 0, 0, 0.1)'; // Dark semi-transparent
+    this.overlayEl.style.backgroundColor = 'rgba(0, 0, 0, 0.3)'; // Dark semi-transparent
     this.overlayEl.style.zIndex = '1000';
     this.overlayEl.style.display = 'none'; // Hidden initially
     this.overlayEl.style.justifyContent = 'center';
