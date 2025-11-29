@@ -163,7 +163,6 @@ export class AbcEditorView extends ItemView {
     // Add text and a button to the overlay
     const msg = this.overlayEl.createEl('h3', { text: 'Editor Paused' });
     msg.style.marginBottom = '10px';
-    this.overlayEl.createDiv({ text: 'The linked note is not currently active.' });
 
     // Subtext we can update
     this.overlaySubtextEl = this.overlayEl.createDiv({ text: 'The linked note is not currently active.' });
