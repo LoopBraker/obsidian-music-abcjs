@@ -414,23 +414,80 @@ export class AbcEditorView extends ItemView {
           note = transposeABC(note, 1);
         }
 
+        // Apply octave intelligence: adjust octave relative to root
+        const rootNote = getScaleNote(root, mode, 1);
+        const adjustedNote = this.adjustNoteOctave(note, rootNote, degreeNum);
+
         const displayLabel = `${opt.degree}${opt.accidental}`;
 
         return {
           label: `.${displayLabel}`,
           displayLabel: displayLabel,
-          detail: `→ ${note}`,
+          detail: `→ ${adjustedNote}`,
           type: 'text',
           apply: (view, completion, from, to) => {
             view.dispatch({
-              changes: { from, to, insert: note },
-              selection: EditorSelection.cursor(from + note.length)
+              changes: { from, to, insert: adjustedNote },
+              selection: EditorSelection.cursor(from + adjustedNote.length)
             });
           }
         };
       }),
       filter: false // We handle filtering ourselves
     };
+  }
+
+  // Helper to adjust note octave relative to root
+  private adjustNoteOctave(note: string, rootNote: string, degree: number): string {
+    // Helper to get note value
+    const getNoteValue = (n: string) => {
+      const match = n.match(/^([\^=_]*)([A-G])$/);
+      if (!match) return 0;
+      const acc = match[1];
+      const base = match[2];
+      const NOTE_VALUES: { [key: string]: number } = {
+        'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11
+      };
+      const ACCIDENTALS: { [key: string]: number } = {
+        '^': 1, '_': -1, '=': 0
+      };
+      let val = NOTE_VALUES[base];
+      if (acc) {
+        for (const char of acc) {
+          if (ACCIDENTALS[char]) val += ACCIDENTALS[char];
+        }
+      }
+      return val;
+    };
+
+    const rootValue = getNoteValue(rootNote);
+    let noteValue = getNoteValue(note);
+
+    // If degree is 1 (root), always use base octave
+    if (degree === 1) {
+      return note;
+    }
+
+    // For other degrees, if the note value is less than or equal to root value,
+    // move it up an octave
+    if (noteValue <= rootValue) {
+      noteValue += 12;
+    }
+
+    // Format the note with proper octave
+    const match = note.match(/^([\^=_]*)([A-G])$/);
+    if (!match) return note;
+    const acc = match[1];
+    const base = match[2];
+
+    if (noteValue >= 12) {
+      let suffix = '';
+      const octavesAbove = Math.floor((noteValue - 12) / 12);
+      for (let k = 0; k < octavesAbove; k++) suffix += "'";
+      return `${acc}${base.toLowerCase()}${suffix}`;
+    } else {
+      return `${acc}${base}`;
+    }
   }
 
   // Chord autosuggestion source  
