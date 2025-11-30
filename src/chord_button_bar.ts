@@ -369,6 +369,36 @@ export class ChordButtonBar {
 
         // Adjust octaves
         let currentOctaveOffset = 0;
+
+        // NEW LOGIC: If 8va is disabled (meaning we want "smart" octaves),
+        // ensure the chord starts at or above the Key Tonic.
+        if (!this._is8vaEnabled) {
+            const getNoteValue = (note: string) => {
+                const match = note.match(/^([\^=_]*)([A-G])$/);
+                if (!match) return 0;
+                const acc = match[1];
+                const base = match[2];
+                let val = NOTE_VALUES[base];
+                if (acc) {
+                    for (const char of acc) {
+                        if (ACCIDENTALS[char]) val += ACCIDENTALS[char];
+                    }
+                }
+                return val;
+            };
+
+            const tonicVal = getNoteValue(getScaleNote(root, mode, 1));
+            const chordRootVal = adjustedValues[0];
+
+            // If the chord root is lower than the key tonic, shift the whole chord up an octave
+            // Example: Key A (val 9). Chord C (val 0). 0 < 9, so shift C to 12.
+            if (chordRootVal < tonicVal) {
+                for (let i = 0; i < adjustedValues.length; i++) {
+                    adjustedValues[i] += 12;
+                }
+            }
+        }
+
         if (!this._is8vaEnabled) {
             for (let i = 1; i < adjustedValues.length; i++) {
                 while (adjustedValues[i] <= adjustedValues[i - 1]) {

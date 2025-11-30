@@ -751,6 +751,16 @@ export class AbcEditorView extends ItemView {
 
     // Adjust octaves to ensure ascending order
     if (!is8vaEnabled) {
+      const tonicVal = getNoteValue(getScaleNote(root, mode, 1));
+      const chordRootVal = adjustedValues[0];
+
+      // If the chord root is lower than the key tonic, shift the whole chord up an octave
+      if (chordRootVal < tonicVal) {
+        for (let i = 0; i < adjustedValues.length; i++) {
+          adjustedValues[i] += 12;
+        }
+      }
+
       for (let i = 1; i < adjustedValues.length; i++) {
         while (adjustedValues[i] <= adjustedValues[i - 1]) {
           adjustedValues[i] += 12;
