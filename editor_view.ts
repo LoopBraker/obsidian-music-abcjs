@@ -135,11 +135,11 @@ export class AbcEditorView extends ItemView {
     } else if (status === 'Saved') {
       this.statusEl.addClass('is-saved');
       // Hide after 2 seconds
-      // setTimeout(() => {
-      //   if (this.statusEl && this.statusEl.getText() === 'Saved') {
-      //     this.statusEl.hide();
-      //   }
-      // }, 2000);
+      setTimeout(() => {
+        if (this.statusEl && this.statusEl.getText() === 'Saved') {
+          this.statusEl.hide();
+        }
+      }, 2000);
     }
   }
 
@@ -209,10 +209,6 @@ export class AbcEditorView extends ItemView {
 
     this.chordButtonBar = new ChordButtonBar(container, () => this.editorView);
 
-    // Status Banner - positioned between chord buttons and bar visualizer
-    this.statusEl = container.createDiv({ cls: 'abc-editor-status' });
-    this.statusEl.hide(); // Hidden by default
-
     const app = this.app as any;
     const plugin = app.plugins?.plugins?.['music-code-blocks'];
     if (plugin?.settings?.showBarVisualizer) {
@@ -220,6 +216,11 @@ export class AbcEditorView extends ItemView {
     }
 
     this.editorContainer = container.createDiv({ cls: 'abc-codemirror-container' });
+    this.editorContainer.style.position = 'relative'; // For absolute positioning of status banner
+
+    // Status Banner - overlay positioned at top-right of editor
+    this.statusEl = this.editorContainer.createDiv({ cls: 'abc-editor-status' });
+    this.statusEl.hide(); // Hidden by default
     this.currentTheme = this.getTheme();
 
     this.editorView = new EditorView({
