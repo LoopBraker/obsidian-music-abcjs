@@ -1,4 +1,4 @@
-import {ExternalTokenizer} from "@lezer/lr"
+import { ExternalTokenizer } from "@lezer/lr"
 
 // @ts-ignore
 import {
@@ -8,8 +8,8 @@ import {
   TimeSignatureKey
 } from "./abc.grammar.terms"
 
-const newline = 10, carriageReturn = 13, colon = 58, 
-      upperV = 86, upperK = 75, upperM = 77;
+const newline = 10, carriageReturn = 13, colon = 58,
+  upperV = 86, upperK = 75, upperM = 77;
 
 function isLetter(code: number) {
   return (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
@@ -30,7 +30,7 @@ export const lineStartTokens = new ExternalTokenizer((input, stack) => {
 
   if (isLetter(char) && next === colon) {
     // Consume 2 chars (Letter + Colon)
-    input.advance(2) 
+    input.advance(2)
 
     if (char === upperV) {
       input.acceptToken(VoiceKey)

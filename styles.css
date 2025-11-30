@@ -75,7 +75,7 @@
   display: inline-flex !important;
   gap: 8px;
   margin: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 0px;
   position: relative;
   z-index: 100;
   width: fit-content;

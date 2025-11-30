@@ -76,26 +76,23 @@ GchordOnKeyword { @specialize<Word, "gchordon"> }
 GchordOffKeyword { @specialize<Word, "gchordoff"> }
 
 // === Voice ===
-VoiceLine { VoiceKey Space? VoiceName (Space VoiceProperty)* InlineComment? }
+VoiceLine { VoiceKey Space? VoiceName (Space VoiceProperty)* InlineComment? Newline}
 
 VoiceName { 
-  // 1. Allow text followed immediately by a number (e.g. "V1", "Violin2")
-    (Word | SimpleNoteCapital | SimpleNoteLower | SingleChar | ComplexNote) (SimpleNoteCapital | SimpleNoteLower | ComplexNote | Word)? (Duration | MidiNumber)? |
-  
-  // 2. Fallbacks for other single types
-  MidiNumber | Slash | BarComponent | Annotation | Duration
+  // Allow text followed immediately by a number (e.g. "V1", "Violin2")
+    textIdentifier+ MidiNumber? 
 }
 VoiceProperty { GenericAssignment | textIdentifier}
 
 // === Key ===
-KeyLine { KeyKey Space? KeyTonic (KeyProperty Space)* InlineComment? }
+KeyLine { KeyKey Space? KeyTonic (KeyProperty Space)* InlineComment? Newline}
 
 KeyTonic {
   // Option 1: "none" or "HP"
   None |
   // Option 2: Standard Key
   // Matches C, F#, Bb, Am (if written as word)
-  SimpleNoteCapital Space? (Sharp)? Space? KeyMode? Space
+  SimpleNoteCapital Space? (Sharp | KeyMode)? Space
 }
 
 KeyMode {
@@ -115,11 +112,11 @@ KeyProperty { GenericAssignment | textIdentifier }
 
 // === Info Fields ===
 // === Generic Info ===
-InfoLine { InfoKey ( Space? InfoVal )* InlineComment? }
+InfoLine { InfoKey ( Space? InfoVal )* InlineComment? Newline}
 InfoVal { textIdentifier | MidiNumber | Slash | BarComponent}
 
 TimeSignatureLine { 
-  TimeSignatureKey Space? CommonTimeSignatures InlineComment? 
+  TimeSignatureKey Space? CommonTimeSignatures InlineComment? Newline 
 }
 
 
@@ -129,11 +126,11 @@ GenericAssignment {
 }
 
 AssignmentKey { 
-  textIdentifier 
+  textIdentifier+ 
 }
 
 AssignmentValue { 
-  textIdentifier | MidiNumber 
+  textIdentifier+ | MidiNumber 
 }
 
 textIdentifier { 
@@ -142,16 +139,14 @@ textIdentifier {
 
 // === Directives ===
 DirectiveLine { 
-  DirectiveKeyword ( Space DirectiveArgs? )? InlineComment? 
+  DirectiveKeyword ( Space DirectiveArgs? )? InlineComment? Newline 
 }
 
 @tokens {
   Newline { "\n" }
   Space { $[\t ]+ }
-  EqualsWithSpaces { ($[\t ]+ "=" $[\t ]*) | ("=" $[\t ]*) }
+  EqualsWithSpaces { ($[\t ]* "=" $[\t ]*) | ("=" $[\t ]*) }
   Punctuation { "!"  | "*"  | "@" | "$" | "&" | "?" | ";" }
-
-
 
   // Directives and Keywords
   MidiKeyword { "%%MIDI" }

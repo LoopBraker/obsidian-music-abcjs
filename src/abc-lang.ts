@@ -429,26 +429,35 @@ function generateStyleTags() {
     "InfoVal/ComplexNote": t.string,
     "InfoVal/Ornament": t.string,
     "InfoVal/SymbolDecoration": t.string,
+    "InfoVal/SimpleNoteLower": t.string,
+    "InfoVal/SimpleNoteCapital": t.string,
 
     // TimeSignatureLine
     "TimeSignatureLine/CommonTimeSignatures": t.number,
 
     // === VOICE LINE ===
     // 
-    "VoiceLine/GenericAssignment": t.string,
-
-    "VoiceLine/VoiceName/Word": t.string,
     "VoiceLine/VoiceName/MidiNumber": t.string,
+    "VoiceLine/VoiceName/Word": t.string,
     "VoiceLine/VoiceName/SimpleNoteCapital": t.string,
-    "VoiceLine/VoiceName/textIdentifier": t.string,
+    "VoiceLine/VoiceName/SymbolDecoration": t.string,
     "VoiceLine/VoiceName/SingleChar": t.string,
     "VoiceLine/VoiceName/Slash": t.string,
     "VoiceLine/VoiceName/BarComponent": t.string,
     "VoiceLine/VoiceName/Annotation": t.string,
     "VoiceLine/VoiceName/Duration": t.string,
     "VoiceLine/VoiceName/ComplexNote": t.string,
-    "VoiceLine/VoiceName/Ornament": t.string,
 
+    // === KEY LINE ===
+    // 
+    "KeyLine/KeyTonic/Word": t.string,
+    "KeyLine/KeyTonic/Sharp": t.string,
+    "KeyLine/KeyTonic/SimpleNoteCapital": t.string, // C, D, E
+    "KeyLine/KeyTonic/KeyMode/Word": t.string, // #
+    "KeyLine/KeyTonic/KeyMode/SingleChar": t.string, // #
+    "KeyLine/KeyTonic/None": t.string, // none
+    "KeyMode/SimpleNoteLower": t.string,
+    "KeyTonic/SingleChar": t.string,
 
     // [MIDI]
     // ProgramAssignment: t.propertyName,
@@ -473,17 +482,11 @@ function generateStyleTags() {
 
     // [Assignments]
     // KEYS:  (PropertyName)
-    "AssignmentKey/Word": t.propertyName,       // clef, shift
-    "AssignmentKey/SimpleNote": t.propertyName, // m, a, b
-    "AssignmentKey/SingleChar": t.propertyName, // n, k, i
-    "AssignmentKey/Annotation": t.propertyName, // lyrics, text
-    "AssignmentKey/Duration": t.propertyName,   // length"
-
-    "KeyTonic/SimpleNoteCapital": t.string, // C, D, E
-    "KeyTonic/Sharp": t.string, // #
-    "KeyTonic/KeyMode": t.string, // #
-    "KeyTonic/None": t.string, // none
-
+    "AssignmentKey/Word": t.propertyName,
+    "AssignmentKey/SimpleNote": t.propertyName,
+    "AssignmentKey/SingleChar": t.propertyName,
+    "AssignmentKey/Annotation": t.propertyName,
+    "AssignmentKey/Duration": t.propertyName,
 
     // VALUES:
     "AssignmentValue/Word": t.string,           // treble, bass, CD
@@ -494,7 +497,7 @@ function generateStyleTags() {
     "AssignmentValue/Annotation": t.string,     // some text
     "AssignmentValue/Duration": t.string,       // 1/4, 1/8
     "AssignmentValue/ComplexNote": t.string, // C#, Bb
-    "AssignmentValue/Ornament": t.string, // ~, u, v
+    "AssignmentValue/SymbolDecoration": t.string, // ~, u, v
 
 
   }

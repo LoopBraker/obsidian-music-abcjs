@@ -133,7 +133,13 @@ export class BarVisualizer {
         cleanBar = cleanBar.replace(/\[%%.*?\]/g, '');
         cleanBar = cleanBar.replace(/%%.*/g, '');
 
-        const chordRegex = /\[.*?\](\d+(?:\/\d*)?|\/+\d*)?/g;
+        // Match chords. The duration of a chord is determined by the first note inside the brackets
+        // OR by a duration specifier immediately following the closing bracket.
+        // If both exist, ABC standard says the outer one multiplies the inner one, but for simple
+        // visualization we often just need to capture the effective duration.
+        // The user prompt specifically mentions: "The key is the duration of the first note of the chord".
+        // Let's look for [ followed by a note with optional duration, then other stuff, then ] followed by optional duration.
+        const chordRegex = /\[(?:[\^=_]*)?[A-Ga-gzZ][,']*(\d+(?:\/\d*)?|\/+\d*)?.*?\](\d+(?:\/\d*)?|\/+\d*)?/g;
         const noteRegex = /(?:[\^=_]*)?[A-Ga-gzZ][,']*(\d+(?:\/\d*)?|\/+\d*)?/g;
 
         let remaining = cleanBar;
@@ -143,7 +149,7 @@ export class BarVisualizer {
             if (durStr.match(/^\d+$/)) return parseInt(durStr);
             if (durStr.startsWith('/')) {
                 const num = 1;
-                const slashes = durStr.match(/\//g).length;
+                const slashes = durStr.match(/\//g)!.length;
                 const denStr = durStr.replace(/\//g, '');
                 const den = denStr ? parseInt(denStr) : Math.pow(2, slashes);
                 return num / den;
@@ -157,8 +163,13 @@ export class BarVisualizer {
             return 1;
         };
 
-        remaining = remaining.replace(chordRegex, (match, dur) => {
-            duration += getDur(dur);
+        remaining = remaining.replace(chordRegex, (match, innerDur, outerDur) => {
+            // If duration is on the first note inside, use it.
+            // If duration is outside, use it.
+            // If both, they multiply (e.g. [C2]2 is 4 units).
+            const d1 = innerDur ? getDur(innerDur) : 1;
+            const d2 = outerDur ? getDur(outerDur) : 1;
+            duration += d1 * d2;
             return '';
         });
 
