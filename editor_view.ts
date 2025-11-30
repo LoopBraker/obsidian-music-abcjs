@@ -217,6 +217,12 @@ export class AbcEditorView extends ItemView {
           highlightSelectionMatches(),
           keymap.of([
             { key: 'Mod-/', run: toggleAbcComment },
+            {
+              key: 'Mod-s', run: (view) => {
+                this.save().catch(e => console.error("Manual save failed:", e));
+                return true;
+              }
+            },
             ...closeBracketsKeymap,
             ...defaultKeymap,
             ...searchKeymap,
@@ -240,12 +246,15 @@ export class AbcEditorView extends ItemView {
                 if (this.onChange) this.onChange(content);
 
                 // 2. AUTO-SAVE to disk (The Fix)
-                // If the user typed, save it. Don't wait for close.
+                // DISABLED: Auto-save triggers reload/glitch. 
+                // We now rely on Mod-S or onClose.
+                /*
                 if (this.isDirty && this.onSave && content.trim().length > 0) {
                   this.onSave(content).catch(e => console.error("Auto-save failed:", e));
                   // We keep isDirty = true until a proper save confirmation or just leave it
                   // to ensure onClose also tries to save any split-second changes.
                 }
+                */
 
                 // 3. Update visualizers
                 const cursor = update.state.selection.main.head;
@@ -298,6 +307,17 @@ export class AbcEditorView extends ItemView {
     this.onSelectionChange = null;
     this.onSave = null;
     this.isDirty = false;
+  }
+
+  // Public method for manual save (e.g. via command)
+  async save(): Promise<void> {
+    if (this.editorView && this.onSave) {
+      const content = this.editorView.state.doc.toString();
+      if (content.trim().length > 0) {
+        await this.onSave(content);
+        this.isDirty = false;
+      }
+    }
   }
 
   updateOverlayMode(strict: boolean) {

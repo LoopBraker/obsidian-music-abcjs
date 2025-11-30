@@ -235,6 +235,22 @@ export default class MusicPlugin extends Plugin {
 				}
 			});
 		}
+
+		// Save Command
+		this.addCommand({
+			id: 'abc-save-editor',
+			name: 'ABC: Save changes',
+			checkCallback: (checking: boolean) => {
+				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+				if (view) {
+					if (!checking) {
+						view.save();
+					}
+					return true;
+				}
+				return false;
+			}
+		});
 	}
 
 	onunload() {
