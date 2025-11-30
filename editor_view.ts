@@ -449,7 +449,8 @@ export class AbcEditorView extends ItemView {
   // Scale degree autosuggestion source
   private async scaleDegreeCompletionSource(context: CompletionContext): Promise<CompletionResult | null> {
     const textBefore = context.state.doc.sliceString(Math.max(0, context.pos - 10), context.pos);
-    const match = textBefore.match(/\.([1-7]?)([_#]?)$/);
+    // Updated regex to match 1-13
+    const match = textBefore.match(/\.((?:1[0-3]|[1-9]))?([_#]?)$/);
 
     if (!match) return null;
 
@@ -457,7 +458,8 @@ export class AbcEditorView extends ItemView {
     const typedAccidental = match[2];
 
     // Build all possible options
-    const degrees = ['1', '2', '3', '4', '5', '6', '7'];
+    // Extended degrees 1-13
+    const degrees = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13'];
     const accidentals = ['', '_', '#'];
     const allOptions: Array<{ degree: string, accidental: string }> = [];
 
@@ -500,10 +502,20 @@ export class AbcEditorView extends ItemView {
         const rootNote = getScaleNote(root, mode, 1);
         const adjustedNote = this.adjustNoteOctave(note, rootNote, degreeNum);
 
-        const displayLabel = `${opt.degree}${opt.accidental}`;
+        // New Display Format: ♭3, 3♯
+        let displayLabel = opt.degree;
+        if (opt.accidental === '_') {
+          displayLabel = `♭${opt.degree}`;
+        } else if (opt.accidental === '#') {
+          displayLabel = `${opt.degree}♯`;
+        }
 
         return {
-          label: `.${displayLabel}`,
+          label: `.${opt.degree}${opt.accidental}`, // Keep typing label simple for matching? Or match display?
+          // Actually, label is what is inserted if apply isn't used, or used for matching.
+          // We want the user to type .3_ and see ♭3.
+          // The label property is often used for filtering.
+          // Let's keep label as the typed text for robust matching, but displayLabel for UI.
           displayLabel: displayLabel,
           detail: `→ ${adjustedNote}`,
           type: 'text',
@@ -545,16 +557,26 @@ export class AbcEditorView extends ItemView {
     const rootValue = getNoteValue(rootNote);
     let noteValue = getNoteValue(note);
 
+    // Calculate octave offset based on degree
+    // 1-7: offset 0
+    // 8-14: offset 1
+    const octaveOffset = Math.floor((degree - 1) / 7);
+
     // If degree is 1 (root), always use base octave
     if (degree === 1) {
       return note;
     }
 
     // For other degrees, if the note value is less than or equal to root value,
-    // move it up an octave
-    if (noteValue <= rootValue) {
+    // move it up an octave to ensure it's above root.
+    // We EXCLUDE degrees that are octaves of the root (8, 15, etc.) because
+    // the octaveOffset calculation already handles their elevation.
+    if ((degree - 1) % 7 !== 0 && noteValue <= rootValue) {
       noteValue += 12;
     }
+
+    // Add additional octaves for higher degrees (8, 9, etc.)
+    noteValue += (octaveOffset * 12);
 
     // Format the note with proper octave
     const match = note.match(/^([\^=_]*)([A-G])$/);
