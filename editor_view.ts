@@ -126,17 +126,18 @@ export class AbcEditorView extends ItemView {
     this.statusEl.removeClass('is-saving');
     this.statusEl.removeClass('is-saved');
 
-    this.statusEl.setText(status);
-
     if (status === 'Unsaved') {
       this.statusEl.addClass('is-dirty');
+      this.statusEl.setAttribute('aria-label', 'Unsaved - Click to save');
     } else if (status === 'Saving...') {
       this.statusEl.addClass('is-saving');
+      this.statusEl.setAttribute('aria-label', 'Saving...');
     } else if (status === 'Saved') {
       this.statusEl.addClass('is-saved');
+      this.statusEl.setAttribute('aria-label', 'Saved');
       // Hide after 2 seconds
       setTimeout(() => {
-        if (this.statusEl && this.statusEl.getText() === 'Saved') {
+        if (this.statusEl && this.statusEl.hasClass('is-saved')) {
           this.statusEl.hide();
         }
       }, 2000);
@@ -218,9 +219,24 @@ export class AbcEditorView extends ItemView {
     this.editorContainer = container.createDiv({ cls: 'abc-codemirror-container' });
     this.editorContainer.style.position = 'relative'; // For absolute positioning of status banner
 
-    // Status Banner - overlay positioned at top-right of editor
-    this.statusEl = this.editorContainer.createDiv({ cls: 'abc-editor-status' });
+    // Status Button - clickable save button with icon overlay at top-right of editor
+    this.statusEl = this.editorContainer.createEl('button', { cls: 'abc-editor-status' });
+    this.statusEl.setAttribute('aria-label', 'Save');
+    this.statusEl.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+        <polyline points="17 21 17 13 7 13 7 21"></polyline>
+        <polyline points="7 3 7 8 15 8"></polyline>
+      </svg>
+    `;
     this.statusEl.hide(); // Hidden by default
+
+    // Add click handler for save button
+    this.statusEl.addEventListener('click', () => {
+      if (this.isDirty) {
+        this.save().catch(e => console.error("Button save failed:", e));
+      }
+    });
     this.currentTheme = this.getTheme();
 
     this.editorView = new EditorView({

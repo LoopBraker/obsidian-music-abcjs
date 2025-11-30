@@ -71,7 +71,7 @@ export class BarVisualizer {
 
         const currentLine = content.substring(lineStart, lineEnd).trim();
 
-        if (currentLine.startsWith('%%') || currentLine.startsWith('w:') || /^[A-Z]:/.test(currentLine)) {
+        if (currentLine.startsWith('%') || currentLine.startsWith('%%') || currentLine.startsWith('w:') || /^[A-Z]:/.test(currentLine)) {
             return '';
         }
 
