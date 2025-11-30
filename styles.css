@@ -432,6 +432,201 @@
   overflow: hidden;
   box-sizing: border-box;
   display: flex;
+}
+
+.abc-editor-view-header h4 {
+  margin: 0;
+  color: var(--text-normal);
+  font-size: var(--font-ui-medium);
+}
+
+/* Template Selector */
+.abc-template-selector {
+  padding: 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.abc-template-label {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.abc-template-dropdown {
+  flex: 1;
+  padding: 4px 8px;
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.abc-template-dropdown:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.abc-template-dropdown:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+/* CodeMirror Container */
+.abc-codemirror-container {
+  flex: 1;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  overflow: hidden;
+  background-color: var(--background-primary);
+}
+
+.abc-codemirror-container .cm-editor {
+  height: 100%;
+  background-color: var(--background-primary);
+}
+
+.abc-codemirror-container .cm-scroller {
+  overflow: auto;
+}
+
+.abc-codemirror-container .cm-content {
+  color: var(--text-normal);
+}
+
+.abc-codemirror-container .cm-gutters {
+  background-color: var(--background-secondary);
+  color: var(--text-muted);
+  border-right: 1px solid var(--background-modifier-border);
+}
+
+.abc-codemirror-container .cm-activeLineGutter {
+  background-color: var(--background-modifier-hover);
+}
+
+.abc-codemirror-container .cm-lineNumbers .cm-gutterElement {
+  padding: 0 8px;
+}
+
+.abc-codemirror-container .cm-activeLine {
+  background-color: rgba(var(--text-selection), 0.3) !important;
+
+}
+
+.abc-codemirror-container .cm-selectionBackground {
+  background-color: var(--text-selection) !important;
+}
+
+.abc-codemirror-container .cm-cursor {
+  border-left-color: var(--text-accent);
+}
+
+.abc-codemirror-container .cm-matchingBracket {
+  background-color: var(--background-modifier-success);
+  outline: 1px solid var(--background-modifier-border);
+}
+
+.abc-codemirror-container .cm-nonmatchingBracket {
+  background-color: var(--background-modifier-error);
+}
+
+.abc-codemirror-container .cm-selectionMatch {
+  background-color: var(--background-modifier-border);
+}
+
+/* Fallback for old textarea styles */
+.abc-editor-view-textarea {
+  flex: 1;
+  width: 100%;
+  padding: 12px;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-small);
+  line-height: 1.6;
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  resize: none;
+  box-sizing: border-box;
+}
+
+/* Folder Suggestions */
+.abc-folder-suggestions {
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  box-shadow: var(--shadow-s);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+  margin-top: 2px;
+}
+
+.abc-folder-suggestion-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+}
+
+.abc-folder-suggestion-item:hover,
+.abc-folder-suggestion-item.is-selected {
+  background-color: var(--background-modifier-hover);
+}
+
+.abc-folder-suggestion-item:active {
+  background-color: var(--background-modifier-active-hover);
+}
+
+.abc-editor-view-textarea:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.abc-editor-view-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.abc-editor-view-buttons button {
+  padding: 6px 16px;
+  cursor: pointer;
+}
+
+.abc-editor-view-help {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  padding: 8px;
+  background-color: var(--background-secondary);
+  border-radius: var(--radius-s);
+  border-left: 3px solid var(--interactive-accent);
+}
+
+.abc-editor-view-help p {
+  margin: 4px 0;
+}
+
+.abc-editor-view-help strong {
+  color: var(--text-normal);
+}
+
+/* Chord Button Bar Styles */
+.div-chord-button-container {
+  transition: transform 0.1s ease;
+}
+
+/* .div-chord-button-container:hover {
+  transform: translateY(-2px);
+} */
+
+.div-chord-button {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  overflow: hidden;
+  box-sizing: border-box;
+  display: flex;
   align-items: center;
   justify-content: center;
   transition: border-color 0.1s ease, box-shadow 0.1s ease;
@@ -440,4 +635,33 @@
 .div-chord-button-container:hover .div-chord-button {
   border-color: var(--interactive-accent);
   box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
+}
+
+/* Save Status Banner */
+.abc-editor-status {
+  background-color: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: 1.1em;
+  font-weight: bold;
+  padding: 6px 12px;
+  margin: 8px 0;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--background-modifier-border);
+  text-align: center;
+  opacity: 0.9;
+}
+
+.abc-editor-status.is-dirty {
+  color: var(--text-warning);
+  font-weight: bold;
+}
+
+.abc-editor-status.is-saving {
+  color: var(--text-accent);
+}
+
+.abc-editor-status.is-saved {
+  color: var(--text-success);
+  font-size: 1.1em;
+  font-weight: bold;
 }

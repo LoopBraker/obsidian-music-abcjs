@@ -112,9 +112,35 @@ export class AbcEditorView extends ItemView {
   private overlayEl: HTMLElement | null = null;
   private overlayMessageEl: HTMLElement | null = null;
   private overlaySubtextEl: HTMLElement | null = null; // Subtext for "Caution"
+  private statusEl: HTMLElement | null = null; // Save status banner
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
+  }
+
+  private updateStatus(status: 'Saved' | 'Unsaved' | 'Saving...') {
+    if (!this.statusEl) return;
+
+    this.statusEl.show();
+    this.statusEl.removeClass('is-dirty');
+    this.statusEl.removeClass('is-saving');
+    this.statusEl.removeClass('is-saved');
+
+    this.statusEl.setText(status);
+
+    if (status === 'Unsaved') {
+      this.statusEl.addClass('is-dirty');
+    } else if (status === 'Saving...') {
+      this.statusEl.addClass('is-saving');
+    } else if (status === 'Saved') {
+      this.statusEl.addClass('is-saved');
+      // Hide after 2 seconds
+      // setTimeout(() => {
+      //   if (this.statusEl && this.statusEl.getText() === 'Saved') {
+      //     this.statusEl.hide();
+      //   }
+      // }, 2000);
+    }
   }
 
   getViewType(): string {
@@ -183,6 +209,10 @@ export class AbcEditorView extends ItemView {
 
     this.chordButtonBar = new ChordButtonBar(container, () => this.editorView);
 
+    // Status Banner - positioned between chord buttons and bar visualizer
+    this.statusEl = container.createDiv({ cls: 'abc-editor-status' });
+    this.statusEl.hide(); // Hidden by default
+
     const app = this.app as any;
     const plugin = app.plugins?.plugins?.['music-code-blocks'];
     if (plugin?.settings?.showBarVisualizer) {
@@ -235,6 +265,7 @@ export class AbcEditorView extends ItemView {
               // SAFETY CHECK: Only mark dirty if user typed (not programmatic load)
               if (!this.isProgrammaticChange) {
                 this.isDirty = true;
+                this.updateStatus('Unsaved');
               }
 
               if (this.updateTimeout) clearTimeout(this.updateTimeout);
@@ -314,8 +345,15 @@ export class AbcEditorView extends ItemView {
     if (this.editorView && this.onSave) {
       const content = this.editorView.state.doc.toString();
       if (content.trim().length > 0) {
-        await this.onSave(content);
-        this.isDirty = false;
+        this.updateStatus('Saving...');
+        try {
+          await this.onSave(content);
+          this.isDirty = false;
+          this.updateStatus('Saved');
+        } catch (err) {
+          console.error("Save failed", err);
+          this.updateStatus('Unsaved'); // Revert to unsaved if failed
+        }
       }
     }
   }
