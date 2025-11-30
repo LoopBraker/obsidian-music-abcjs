@@ -126,21 +126,25 @@ export class BarVisualizer {
 
     private calculateBarDuration(barContent: string): number {
         let duration = 0;
-        let cleanBar = barContent.replace(/"[^"]*"/g, '');
+        let cleanBar = barContent.replace(/"[^"]*"/g, ''); // Remove text inside quotes
+        //Remove text inside curly brackets
+        cleanBar = cleanBar.replace(/\{.*?\}/g, '');
         cleanBar = cleanBar.replace(/!.*?!/g, '');
         cleanBar = cleanBar.replace(/\+.*?\+/g, '');
         cleanBar = cleanBar.replace(/\[[A-Za-z]:.*?\]/g, '');
         cleanBar = cleanBar.replace(/\[%%.*?\]/g, '');
         cleanBar = cleanBar.replace(/%%.*/g, '');
 
-        // Match chords. The duration of a chord is determined by the first note inside the brackets
-        // OR by a duration specifier immediately following the closing bracket.
-        // If both exist, ABC standard says the outer one multiplies the inner one, but for simple
-        // visualization we often just need to capture the effective duration.
-        // The user prompt specifically mentions: "The key is the duration of the first note of the chord".
-        // Let's look for [ followed by a note with optional duration, then other stuff, then ] followed by optional duration.
-        const chordRegex = /\[(?:[\^=_]*)?[A-Ga-gzZ][,']*(\d+(?:\/\d*)?|\/+\d*)?.*?\](\d+(?:\/\d*)?|\/+\d*)?/g;
-        const noteRegex = /(?:[\^=_]*)?[A-Ga-gzZ][,']*(\d+(?:\/\d*)?|\/+\d*)?/g;
+        // Match chords [...]
+        // Strategy: First match the entire [...] block, then parse the first valid note inside
+        // to determine duration. This handles cases like [ngc] where invalid chars appear before notes.
+
+        // Match any [...] block with optional outer duration
+        const chordRegex = /\[([^\]]*)\](\d+(?:\/\d*)?|\/+\d*)?/g;
+
+        // Match individual notes (only A-G, a-g, and rests z/Z are valid)
+        // In ABC notation: accidentals + note letter + octave markers + duration
+        const noteRegex = /(?:[\^=_]*)?[A-Ga-gzZxX][,']*(\d+(?:\/\d*)?|\/+\d*)?/g;
 
         let remaining = cleanBar;
 
@@ -163,16 +167,24 @@ export class BarVisualizer {
             return 1;
         };
 
-        remaining = remaining.replace(chordRegex, (match, innerDur, outerDur) => {
-            // If duration is on the first note inside, use it.
-            // If duration is outside, use it.
-            // If both, they multiply (e.g. [C2]2 is 4 units).
-            const d1 = innerDur ? getDur(innerDur) : 1;
-            const d2 = outerDur ? getDur(outerDur) : 1;
-            duration += d1 * d2;
+        // Process chords first
+        remaining = remaining.replace(chordRegex, (match, chordContent, outerDur) => {
+            // Find the first valid note inside the chord and check for duration AFTER it
+            // In ABC notation: accidentals + note letter + octave markers + duration
+            // Pattern: optional accidentals + note letter + octave markers + optional duration
+            const firstNoteMatch = chordContent.match(/(?:[\^=_]*)?[A-Ga-g][,']*(\d+(?:\/\d*)?|\/+\d*)?/);
+
+            let innerDur = 1;
+            if (firstNoteMatch && firstNoteMatch[1]) {
+                innerDur = getDur(firstNoteMatch[1]);
+            }
+
+            const outerDurVal = outerDur ? getDur(outerDur) : 1;
+            duration += innerDur * outerDurVal;
             return '';
         });
 
+        // Process remaining individual notes
         remaining.replace(noteRegex, (match, dur) => {
             duration += getDur(dur);
             return '';
