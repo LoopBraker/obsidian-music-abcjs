@@ -969,6 +969,12 @@ export class AbcEditorView extends ItemView {
           highlightSelectionMatches(),
           keymap.of([
             { key: 'Mod-/', run: toggleAbcComment },
+            {
+              key: 'Mod-s', run: (view) => {
+                this.save().catch(e => console.error("Manual save failed:", e));
+                return true;
+              }
+            },
             ...closeBracketsKeymap,
             ...defaultKeymap,
             ...searchKeymap,
@@ -978,17 +984,24 @@ export class AbcEditorView extends ItemView {
           ]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
-              if (!this.isProgrammaticChange) this.isDirty = true;
+              // SAFETY CHECK: Only mark dirty if user typed (not programmatic load)
+              if (!this.isProgrammaticChange) {
+                this.isDirty = true;
+                this.updateStatus('Unsaved');
+              }
 
               if (this.updateTimeout) clearTimeout(this.updateTimeout);
               this.updateTimeout = setTimeout(() => {
                 const content = update.state.doc.toString();
                 if (this.onChange) this.onChange(content);
 
-                // AUTO-SAVE (Same logic as onOpen)
+                // AUTO-SAVE to disk (DISABLED to fix glitch)
+                // We now rely on Mod-S or onClose.
+                /*
                 if (this.isDirty && this.onSave && content.trim().length > 0) {
                   this.onSave(content).catch(e => console.error("Auto-save failed:", e));
                 }
+                */
 
                 const cursor = update.state.selection.main.head;
                 if (this.barVisualizer) this.barVisualizer.update(content, cursor);
