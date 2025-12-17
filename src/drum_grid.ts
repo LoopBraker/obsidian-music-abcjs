@@ -139,72 +139,154 @@ export class DrumGrid {
             return;
         }
 
-        // --- Render Header Row (1 e & a ...) ---
-        const headerRow = this.gridContainer.createDiv({ cls: 'abc-drum-row header' });
-        headerRow.style.display = 'flex';
-        headerRow.style.marginLeft = '100px'; // Offset for labels
+        const cellWidth = 28;
+        const cellHeight = 32;
+        const labelWidth = 90;
+        const beatGroupGap = 8; // Gap between beat groups
 
-        // 4 beats, 4 subdivs each = 16 slots
-        const beats = ['1', 'e', '&', 'a', '2', 'e', '&', 'a', '3', 'e', '&', 'a', '4', 'e', '&', 'a'];
-        beats.forEach((b, i) => {
-            const cell = headerRow.createDiv({ cls: 'abc-drum-header-cell' });
-            cell.innerText = b;
-            cell.style.width = '20px'; // Fixed width for now
-            cell.style.textAlign = 'center';
-            cell.style.fontSize = '10px';
-            if (i % 4 === 0) cell.style.fontWeight = 'bold';
+        // --- Render Header Row (1 e & a ...) grouped in boxes ---
+        const headerRow = this.gridContainer.createDiv({ cls: 'abc-drum-row abc-drum-header' });
+        headerRow.style.display = 'flex';
+        headerRow.style.marginLeft = `${labelWidth + 10}px`;
+        headerRow.style.gap = `${beatGroupGap}px`;
+
+        // 4 beat groups
+        const beatLabels = [['1', 'e', '&', 'a'], ['2', 'e', '&', 'a'], ['3', 'e', '&', 'a'], ['4', 'e', '&', 'a']];
+        beatLabels.forEach((group) => {
+            const beatGroup = headerRow.createDiv({ cls: 'abc-drum-beat-group' });
+            beatGroup.style.display = 'flex';
+            beatGroup.style.border = '1px solid var(--background-modifier-border)';
+            beatGroup.style.borderRadius = '4px';
+            beatGroup.style.padding = '4px 0';
+            beatGroup.style.backgroundColor = 'var(--background-secondary)';
+
+            group.forEach((b, i) => {
+                const cell = beatGroup.createDiv({ cls: 'abc-drum-header-cell' });
+                cell.innerText = b;
+                cell.style.width = `${cellWidth}px`;
+                cell.style.textAlign = 'center';
+                cell.style.fontSize = '12px';
+                cell.style.fontWeight = i === 0 ? 'bold' : 'normal';
+                cell.style.color = 'var(--text-normal)';
+            });
         });
 
-        // --- Render Instrument Rows ---
-        this.visibleMaps.forEach(map => {
-            const row = this.gridContainer.createDiv({ cls: 'abc-drum-row' });
+        // --- Render Instrument Rows with line grid ---
+        const parsedNotes = this.parseBarToGrid(this.currentBar);
+
+        this.visibleMaps.forEach((map, rowIndex) => {
+            const row = this.gridContainer.createDiv({ cls: 'abc-drum-row abc-drum-instrument-row' });
             row.style.display = 'flex';
             row.style.alignItems = 'center';
+            row.style.position = 'relative';
+            row.style.height = `${cellHeight}px`;
 
             // Label Button
             const label = row.createEl('button', { cls: 'abc-drum-label', text: map.label });
-            label.style.width = '90px';
+            label.style.width = `${labelWidth}px`;
             label.style.marginRight = '10px';
-            label.style.fontSize = '10px';
+            label.style.fontSize = '11px';
             label.style.overflow = 'hidden';
             label.style.whiteSpace = 'nowrap';
             label.style.textOverflow = 'ellipsis';
+            label.style.border = '1px solid var(--background-modifier-border)';
+            label.style.borderRadius = '4px';
+            label.style.backgroundColor = 'var(--background-secondary)';
+            label.style.color = 'var(--text-normal)';
+            label.style.padding = '4px 8px';
+            label.style.cursor = 'pointer';
 
-            // Grid Cells
-            const parsedNotes = this.parseBarToGrid(this.currentBar);
+            // Grid area container
+            const gridArea = row.createDiv({ cls: 'abc-drum-grid-area' });
+            gridArea.style.display = 'flex';
+            gridArea.style.position = 'relative';
+            gridArea.style.height = `${cellHeight}px`;
+            gridArea.style.gap = `${beatGroupGap}px`;
 
-            for (let i = 0; i < 16; i++) {
-                const cell = row.createDiv({ cls: 'abc-drum-cell' });
-                cell.style.width = '20px';
-                cell.style.height = '20px';
-                cell.style.border = '1px solid var(--background-modifier-border)';
-                cell.style.cursor = 'pointer';
-                cell.style.display = 'flex';
-                cell.style.justifyContent = 'center';
-                cell.style.alignItems = 'center';
+            // Render 4 beat groups
+            for (let beatIdx = 0; beatIdx < 4; beatIdx++) {
+                const beatGroup = gridArea.createDiv({ cls: 'abc-drum-beat-grid-group' });
+                beatGroup.style.display = 'flex';
+                beatGroup.style.position = 'relative';
+                beatGroup.style.height = '100%';
 
-                // Check if this instrument is active at this step
-                const isActive = parsedNotes[i] && parsedNotes[i].includes(map.char);
-                if (isActive) {
-                    const diamond = cell.createDiv({ cls: 'abc-drum-diamond' });
-                    diamond.style.width = '12px';
-                    diamond.style.height = '12px';
-                    diamond.style.backgroundColor = 'var(--text-normal)';
-                    diamond.style.transform = 'rotate(45deg)';
+                // Horizontal line through the middle (aligned with instrument)
+                const hLine = beatGroup.createDiv({ cls: 'abc-drum-h-line' });
+                hLine.style.position = 'absolute';
+                hLine.style.top = '50%';
+                hLine.style.left = '0';
+                hLine.style.right = '0';
+                hLine.style.height = '1px';
+                hLine.style.borderTop = '1px dashed var(--background-modifier-border)';
+                hLine.style.pointerEvents = 'none';
+
+                // 4 steps per beat group
+                for (let stepIdx = 0; stepIdx < 4; stepIdx++) {
+                    const globalStep = beatIdx * 4 + stepIdx;
+                    const stepContainer = beatGroup.createDiv({ cls: 'abc-drum-step' });
+                    stepContainer.style.width = `${cellWidth}px`;
+                    stepContainer.style.height = '100%';
+                    stepContainer.style.position = 'relative';
+                    stepContainer.style.cursor = 'pointer';
+                    stepContainer.style.display = 'flex';
+                    stepContainer.style.justifyContent = 'center';
+                    stepContainer.style.alignItems = 'center';
+
+                    // Vertical line at each step (centered)
+                    const vLine = stepContainer.createDiv({ cls: 'abc-drum-v-line' });
+                    vLine.style.position = 'absolute';
+                    vLine.style.left = '50%';
+                    vLine.style.top = '0';
+                    vLine.style.bottom = '0';
+                    vLine.style.width = '1px';
+                    vLine.style.borderLeft = '1px dashed var(--background-modifier-border)';
+                    vLine.style.pointerEvents = 'none';
+
+                    // Diamond at intersection if note is active
+                    const isActive = parsedNotes[globalStep] && parsedNotes[globalStep].includes(map.char);
+                    if (isActive) {
+                        const diamond = stepContainer.createDiv({ cls: 'abc-drum-diamond' });
+                        diamond.style.width = '14px';
+                        diamond.style.height = '14px';
+                        diamond.style.backgroundColor = 'var(--text-normal)';
+                        diamond.style.transform = 'rotate(45deg)';
+                        diamond.style.zIndex = '1';
+                        diamond.style.boxShadow = '0 1px 3px rgba(0,0,0,0.3)';
+                    }
+
+                    stepContainer.addEventListener('click', () => {
+                        this.toggleNote(globalStep, map.char);
+                    });
+
+                    // Hover effect
+                    stepContainer.addEventListener('mouseenter', () => {
+                        if (!isActive) {
+                            stepContainer.style.backgroundColor = 'var(--background-modifier-hover)';
+                        }
+                    });
+                    stepContainer.addEventListener('mouseleave', () => {
+                        stepContainer.style.backgroundColor = 'transparent';
+                    });
                 }
-
-                cell.addEventListener('click', () => {
-                    this.toggleNote(i, map.char);
-                });
             }
         });
 
-        // --- Plus Button ---
-        // Basic implementation: if there are hidden maps, show a + button to add the next one
+        // --- Plus Button Row ---
         if (this.visibleMaps.length < this.percMaps.length) {
-            const addRow = this.gridContainer.createDiv({ cls: 'abc-drum-row' });
-            const addBtn = addRow.createEl('button', { text: '+' });
-            addBtn.style.width = '90px';
+            const addRow = this.gridContainer.createDiv({ cls: 'abc-drum-row abc-drum-add-row' });
+            addRow.style.display = 'flex';
+            addRow.style.marginTop = '4px';
+
+            const addBtn = addRow.createEl('button', { text: '+', cls: 'abc-drum-add-btn' });
+            addBtn.style.width = `${labelWidth}px`;
+            addBtn.style.fontSize = '16px';
+            addBtn.style.border = '1px solid var(--background-modifier-border)';
+            addBtn.style.borderRadius = '4px';
+            addBtn.style.backgroundColor = 'var(--background-secondary)';
+            addBtn.style.color = 'var(--text-normal)';
+            addBtn.style.padding = '4px 8px';
+            addBtn.style.cursor = 'pointer';
+
             addBtn.addEventListener('click', () => {
                 const nextIdx = this.visibleMaps.length;
                 if (nextIdx < this.percMaps.length) {
