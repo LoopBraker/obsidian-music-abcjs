@@ -11,6 +11,7 @@ import { solarizedDark } from 'cm6-theme-solarized-dark';
 import { abc } from './src/abc-lang';
 import { BarVisualizer } from './src/bar_visualizer';
 import { ChordButtonBar } from './src/chord_button_bar';
+import { DrumGrid } from './src/drum_grid';
 import { transposeABC, setSelectionToDegreeABC, getScaleNote, parseKey } from './src/transposer';
 
 export const ABC_EDITOR_VIEW_TYPE = 'abc-music-editor';
@@ -101,6 +102,8 @@ export class AbcEditorView extends ItemView {
   private currentTheme: any = oneDark;
   private barVisualizer: BarVisualizer | null = null;
   private chordButtonBar: ChordButtonBar | null = null;
+  private drumGrid: DrumGrid | null = null;
+  private activeAuxView: 'chords' | 'drums' = 'chords';
 
   // SAFETY FLAGS
   private isDirty: boolean = false;
@@ -206,9 +209,62 @@ export class AbcEditorView extends ItemView {
 
 
     const header = container.createDiv({ cls: 'abc-editor-view-header' });
-    header.createEl('h4', { text: 'ABC Music Code Editor' });
+    header.style.display = 'flex';
+    header.style.justifyContent = 'space-between';
+    header.style.alignItems = 'center';
+    const headerTitle = header.createEl('h4', { text: 'ABC Music Code Editor' });
+    headerTitle.style.margin = '0';
+
+    // Toggle Switch (Chords / Drums)
+    const toggleContainer = header.createDiv({ cls: 'abc-view-toggle' });
+    toggleContainer.style.display = 'flex';
+    toggleContainer.style.gap = '5px';
+
+    const chordsBtn = toggleContainer.createEl('button', { text: 'Chords' });
+    const drumsBtn = toggleContainer.createEl('button', { text: 'Drums' });
+
+    const updateToggle = () => {
+      if (this.activeAuxView === 'chords') {
+        chordsBtn.addClass('is-active'); // You might need CSS for 'is-active' or set style manually
+        chordsBtn.style.backgroundColor = 'var(--interactive-accent)';
+        chordsBtn.style.color = 'var(--text-on-accent)';
+        drumsBtn.removeClass('is-active');
+        drumsBtn.style.backgroundColor = '';
+        drumsBtn.style.color = '';
+
+        if (this.chordButtonBar) this.chordButtonBar.show();
+        if (this.drumGrid) this.drumGrid.hide();
+      } else {
+        drumsBtn.addClass('is-active');
+        drumsBtn.style.backgroundColor = 'var(--interactive-accent)';
+        drumsBtn.style.color = 'var(--text-on-accent)';
+        chordsBtn.removeClass('is-active');
+        chordsBtn.style.backgroundColor = '';
+        chordsBtn.style.color = '';
+
+        if (this.chordButtonBar) this.chordButtonBar.hide();
+        if (this.drumGrid) this.drumGrid.show();
+
+        // Trigger update immediately
+        if (this.drumGrid && this.editorView) {
+          const content = this.editorView.state.doc.toString();
+          const cursor = this.editorView.state.selection.main.head;
+          this.drumGrid.update(content, cursor);
+        }
+      }
+    };
+
+    chordsBtn.onclick = () => { this.activeAuxView = 'chords'; updateToggle(); };
+    drumsBtn.onclick = () => { this.activeAuxView = 'drums'; updateToggle(); };
+
+    // Initial Style
+    updateToggle();
 
     this.chordButtonBar = new ChordButtonBar(container, () => this.editorView);
+    this.drumGrid = new DrumGrid(container, () => this.editorView);
+    // Initial visibility check
+    if (this.activeAuxView === 'chords') this.drumGrid.hide();
+    else if (this.chordButtonBar) this.chordButtonBar.hide();
 
     const app = this.app as any;
     const plugin = app.plugins?.plugins?.['music-code-blocks'];
@@ -308,6 +364,7 @@ export class AbcEditorView extends ItemView {
                 const cursor = update.state.selection.main.head;
                 if (this.barVisualizer) this.barVisualizer.update(content, cursor);
                 if (this.chordButtonBar) this.chordButtonBar.update(content, cursor);
+                if (this.drumGrid && this.activeAuxView === 'drums') this.drumGrid.update(content, cursor);
               }, 1000); // 1000ms debounce
             }
             if (update.selectionSet && this.onSelectionChange) {
@@ -319,6 +376,7 @@ export class AbcEditorView extends ItemView {
               const cursor = update.state.selection.main.head;
               if (this.barVisualizer) this.barVisualizer.update(content, cursor);
               if (this.chordButtonBar) this.chordButtonBar.update(content, cursor);
+              if (this.drumGrid && this.activeAuxView === 'drums') this.drumGrid.update(content, cursor);
             }
           }),
           EditorView.theme({
@@ -1004,8 +1062,20 @@ export class AbcEditorView extends ItemView {
                 */
 
                 const cursor = update.state.selection.main.head;
+
+                if (this.currentTheme) {
+                  // Check if theme changed (could handle more efficiently but this works)
+                  const newTheme = this.getTheme();
+                  // Note: comparing extensions isn't trivial, but usually we just want to ensure it's applied.
+                  // CodeMirror handles extension updates via dispatch effects if needed, but here we just re-create editor state on full reload.
+                  // For dynamic theme:
+                  // We might need a compartment if we want to switch themes without reload.
+                  // For now, assume theme is static per load or handled by plugin reload.
+                }
+
                 if (this.barVisualizer) this.barVisualizer.update(content, cursor);
-                if (this.chordButtonBar) this.chordButtonBar.update(content, cursor);
+                if (this.chordButtonBar && this.activeAuxView === 'chords') this.chordButtonBar.update(content, cursor);
+                if (this.drumGrid && this.activeAuxView === 'drums') this.drumGrid.update(content, cursor);
               }, 1000); // 1s Debounce
             }
             if (update.selectionSet && this.onSelectionChange) {
@@ -1013,9 +1083,11 @@ export class AbcEditorView extends ItemView {
               this.onSelectionChange(selection.from, selection.to);
 
               const content = update.state.doc.toString();
-              const cursor = update.state.selection.main.head;
+              const cursor = selection.head;
+
               if (this.barVisualizer) this.barVisualizer.update(content, cursor);
-              if (this.chordButtonBar) this.chordButtonBar.update(content, cursor);
+              if (this.chordButtonBar && this.activeAuxView === 'chords') this.chordButtonBar.update(content, cursor);
+              if (this.drumGrid && this.activeAuxView === 'drums') this.drumGrid.update(content, cursor);
             }
           }),
           EditorView.theme({

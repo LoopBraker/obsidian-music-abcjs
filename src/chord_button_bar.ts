@@ -51,6 +51,14 @@ export class ChordButtonBar {
         this.renderModifierButtons();
     }
 
+    show() {
+        this.container.style.display = 'flex';
+    }
+
+    hide() {
+        this.container.style.display = 'none';
+    }
+
     update(content: string, cursor: number) {
         const lines = content.split('\n');
 
