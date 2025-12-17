@@ -79,6 +79,7 @@ export class DrumGrid {
     }
 
     private lastContent: string = "";
+    private previousBarContent: string = "";
 
     update(content: string, cursor: number) {
         // 1. Parse %%percmap directives only if content changed
@@ -87,14 +88,125 @@ export class DrumGrid {
             this.lastContent = content;
         }
 
-        // 2. Identify the current bar
+        // 2. Identify the current bar (and previous bar for fallback)
         const previousBar = this.currentBar;
         this.identifyCurrentBar(content, cursor);
+        this.identifyPreviousBar(content, cursor);
 
-        // 3. Render only if bar changed (or forced? No, explicit changes call render)
+        // 3. Update visible instruments based on bar content
         if (this.currentBar !== previousBar) {
+            this.updateVisibleInstruments();
             this.render();
         }
+    }
+
+    // Clean bar content from annotations, decorations, etc. (similar to bar_visualizer)
+    private cleanBarContent(barContent: string): string {
+        let cleanBar = barContent;
+        cleanBar = cleanBar.replace(/"[^"]*"/g, '');       // Remove text in quotes (annotations)
+        cleanBar = cleanBar.replace(/\{.*?\}/g, '');       // Remove grace notes in curly brackets
+        cleanBar = cleanBar.replace(/!.*?!/g, '');         // Remove decorations !...!
+        cleanBar = cleanBar.replace(/\+.*?\+/g, '');       // Remove old-style decorations +...+
+        cleanBar = cleanBar.replace(/\[[A-Za-z]:.*?\]/g, ''); // Remove inline info fields
+        cleanBar = cleanBar.replace(/\[%%.*?\]/g, '');     // Remove inline directives
+        cleanBar = cleanBar.replace(/%%.*/g, '');          // Remove comments
+        return cleanBar;
+    }
+
+    // Extract unique note characters from a bar
+    private extractNotesFromBar(barContent: string): Set<string> {
+        const cleanBar = this.cleanBarContent(barContent);
+        const notes = new Set<string>();
+
+        // Match chords [...] and extract notes inside
+        const chordRegex = /\[([^\]]*)\]/g;
+        let remaining = cleanBar;
+
+        remaining = remaining.replace(chordRegex, (match, chordContent) => {
+            // Extract individual notes from chord using exec loop
+            const notePattern = /([\^=_]?[A-Ga-g][,']*)/g;
+            let noteMatch;
+            while ((noteMatch = notePattern.exec(chordContent)) !== null) {
+                notes.add(noteMatch[1]);
+            }
+            return '';
+        });
+
+        // Match remaining individual notes using exec loop
+        const noteRegex = /([\^=_]?[A-Ga-g][,']*)/g;
+        let match;
+        while ((match = noteRegex.exec(remaining)) !== null) {
+            notes.add(match[1]);
+        }
+
+        return notes;
+    }
+
+    // Update visible instruments based on notes in current bar (or previous bar as fallback)
+    private updateVisibleInstruments() {
+        if (this.percMaps.length === 0) return;
+
+        // Get notes from current bar
+        let usedNotes = this.extractNotesFromBar(this.currentBar);
+
+        // If current bar is empty or has no notes, check previous bar
+        if (usedNotes.size === 0 && this.previousBarContent) {
+            usedNotes = this.extractNotesFromBar(this.previousBarContent);
+        }
+
+        // Find which percMaps are used
+        const usedMaps: PercMap[] = [];
+        for (const map of this.percMaps) {
+            if (usedNotes.has(map.char)) {
+                usedMaps.push(map);
+            }
+        }
+
+        if (usedMaps.length > 0) {
+            // Use the instruments found in the bar(s)
+            this.visibleMaps = usedMaps;
+        } else {
+            // Fall back to first 3 instruments (default behavior for new/empty bars)
+            this.visibleMaps = this.percMaps.slice(0, this.maxVisible);
+        }
+    }
+
+    // Find the previous bar content
+    private identifyPreviousBar(content: string, cursor: number) {
+        if (!this.currentBarContext) {
+            this.previousBarContent = "";
+            return;
+        }
+
+        // Look for bar before the current bar's start
+        const beforeCurrentBar = content.substring(0, this.currentBarContext.start);
+
+        // Find the previous bar delimiter
+        let prevEnd = beforeCurrentBar.lastIndexOf('|');
+        if (prevEnd === -1) {
+            this.previousBarContent = "";
+            return;
+        }
+
+        // Skip the delimiter we found (it's the end of prev bar)
+        const beforePrevEnd = beforeCurrentBar.substring(0, prevEnd);
+
+        // Find start of previous bar
+        let prevStart = beforePrevEnd.lastIndexOf('|');
+        const prevNewline = beforePrevEnd.lastIndexOf('\n');
+
+        // Use whichever is closer (but after it)
+        if (prevNewline > prevStart) {
+            prevStart = prevNewline;
+        }
+
+        if (prevStart === -1) {
+            prevStart = 0;
+        } else {
+            prevStart += 1; // Move past delimiter
+        }
+
+        this.previousBarContent = beforeCurrentBar.substring(prevStart, prevEnd).trim();
     }
 
     private parsePercMaps(content: string) {
@@ -106,12 +218,7 @@ export class DrumGrid {
             const label = GM_DRUMS[midi] || `Drum ${midi}`;
             this.percMaps.push({ char, midi, label });
         }
-
-        // Default logic: show first 3 found maps if no visibility state is set
-        // Or if we haven't initialized visible maps yet
-        if (this.visibleMaps.length === 0 && this.percMaps.length > 0) {
-            this.visibleMaps = this.percMaps.slice(0, this.maxVisible);
-        }
+        // Note: visibleMaps will be set by updateVisibleInstruments() based on bar content
     }
 
     private identifyCurrentBar(content: string, cursor: number) {
@@ -272,7 +379,12 @@ export class DrumGrid {
         });
 
         // --- Plus Button Row ---
-        if (this.visibleMaps.length < this.percMaps.length) {
+        // Find instruments not yet visible
+        const hiddenMaps = this.percMaps.filter(map => 
+            !this.visibleMaps.some(v => v.char === map.char)
+        );
+
+        if (hiddenMaps.length > 0) {
             const addRow = this.gridContainer.createDiv({ cls: 'abc-drum-row abc-drum-add-row' });
             addRow.style.display = 'flex';
             addRow.style.marginTop = '4px';
@@ -288,9 +400,10 @@ export class DrumGrid {
             addBtn.style.cursor = 'pointer';
 
             addBtn.addEventListener('click', () => {
-                const nextIdx = this.visibleMaps.length;
-                if (nextIdx < this.percMaps.length) {
-                    this.visibleMaps.push(this.percMaps[nextIdx]);
+                // Add the first hidden instrument (one not already visible)
+                const nextMap = hiddenMaps[0];
+                if (nextMap) {
+                    this.visibleMaps.push(nextMap);
                     this.render();
                 }
             });
