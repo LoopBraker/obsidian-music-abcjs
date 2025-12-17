@@ -411,20 +411,55 @@ export class DrumGrid {
         return grid;
     }
 
+    // Format bar text with beat grouping (4 notes per beat, space between beats)
+    private formatBarWithBeatGrouping(tokens: Token[]): string {
+        if (tokens.length === 0) return "";
+
+        let result = "";
+        let currentTick = 0;
+
+        for (let i = 0; i < tokens.length; i++) {
+            const token = tokens[i];
+            const tokenDur = Math.round(token.duration) || 1;
+
+            // Add space before this token if we're at a beat boundary (every 4 ticks)
+            // and this isn't the first token
+            if (currentTick > 0 && currentTick % 4 === 0) {
+                result += " ";
+            }
+
+            // Reconstruct token text
+            const durationPart = token.text.replace(/^(\[[^\]]+\]|[\^=_]*[A-Za-z][,']*|z|Z|x|X)/, "");
+            let tokenText = "";
+
+            if (token.notes.length === 0) {
+                tokenText = "z" + durationPart;
+            } else if (token.notes.length === 1) {
+                tokenText = token.notes[0] + durationPart;
+            } else {
+                tokenText = `[${token.notes.join('')}]${durationPart}`;
+            }
+
+            result += tokenText;
+            currentTick += tokenDur;
+        }
+
+        return result;
+    }
+
     private toggleNote(tickIndex: number, char: string) {
         if (!this.currentBarContext || this.currentBar === null) return;
 
-        // 1. Identify the token at the clicked tick
+        // 1. Parse existing tokens
         const tokens = this.parseBarToTokens(this.currentBar);
 
         let currentTick = 0;
-        let targetToken = null;
+        let targetToken: Token | null = null;
         let tokenIndex = -1;
 
         for (let i = 0; i < tokens.length; i++) {
             const t = tokens[i];
             const tokenDur = Math.round(t.duration) || 1;
-            // Check if this token covers the ticked slot
             if (currentTick <= tickIndex && (currentTick + tokenDur) > tickIndex) {
                 targetToken = t;
                 tokenIndex = i;
@@ -456,33 +491,38 @@ export class DrumGrid {
         };
 
         if (!targetToken) {
-            // APPEND MODE
+            // APPEND MODE - fill gap with rests, then add the note
             const gap = tickIndex - currentTick;
-
             if (gap < 0) return;
 
-            let appendStr = "";
-            // Add rests for the gap
-            // Using 'z' for 1 tick rest.
-            // Check if we need leading space?
-            // If bar is not empty and doesn't end with space, add one? 
-            // Simplified: always add space for safety/readability
-            const needsSpace = this.currentBar.length > 0 && !this.currentBar.endsWith(' ');
-            if (needsSpace) appendStr += " ";
+            // Create new tokens for the gap (rests) and the new note
+            const newTokens: Token[] = [...tokens];
 
             for (let k = 0; k < gap; k++) {
-                appendStr += "z ";
+                newTokens.push({
+                    text: "z",
+                    start: 0,
+                    end: 0,
+                    notes: [],
+                    duration: 1
+                });
             }
 
-            appendStr += char;
+            // Add the new note
+            newTokens.push({
+                text: char,
+                start: 0,
+                end: 0,
+                notes: [char],
+                duration: 1
+            });
 
-            const newBar = this.currentBar + appendStr;
+            const newBar = this.formatBarWithBeatGrouping(newTokens);
             applyChange(newBar);
             return;
         }
 
-        // 2. Modify the token
-        let newContent = "";
+        // 2. Modify the target token
         let newNotes = [...targetToken.notes];
 
         // Toggle logic
@@ -492,23 +532,14 @@ export class DrumGrid {
             newNotes.push(char);
         }
 
-        // Reconstruct token text
-        // Keep duration part
-        const durationPart = targetToken.text.replace(/^(\[[^\]]+\]|[\^=_]*[A-Za-z][,']*|z|Z|x|X)/, "");
+        // Update the token in place
+        tokens[tokenIndex] = {
+            ...targetToken,
+            notes: newNotes
+        };
 
-        if (newNotes.length === 0) {
-            newContent = "z" + durationPart;
-        } else if (newNotes.length === 1) {
-            newContent = newNotes[0] + durationPart;
-        } else {
-            newContent = `[${newNotes.join('')}]${durationPart}`;
-        }
-
-        // 3. Replace strictly the range of the token in currentBar
-        const before = this.currentBar.substring(0, targetToken.start);
-        const after = this.currentBar.substring(targetToken.end);
-        const newBar = before + newContent + after;
-
+        // 3. Rebuild the entire bar with proper beat grouping
+        const newBar = this.formatBarWithBeatGrouping(tokens);
         applyChange(newBar);
     }
 }
