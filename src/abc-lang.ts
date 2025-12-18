@@ -3,14 +3,22 @@ import { LRLanguage, LanguageSupport, syntaxTree } from "@codemirror/language"
 import { styleTags, tags as t } from "@lezer/highlight"
 import { autocompletion, CompletionContext } from "@codemirror/autocomplete"
 import { linter, Diagnostic } from "@codemirror/lint"
+import { EditorView, Tooltip, showTooltip } from "@codemirror/view"
+import { StateField, StateEffect } from "@codemirror/state"
 
 // Import modular ABC definitions
-import { validInfoKeys, infoFieldDefinitions, commonTimeSignatures } from "./abc-infofields"
+import {
+  validInfoKeys,
+  infoFieldDefinitions,
+  commonTimeSignatures,
+  infoFields
+} from "./abc-infofields"
 import { validDirectives, directiveDefinitions } from "./abc-directives"
 import {
   midiAttributes,
   midiAttributeDefinitions,
-  validateMidiAttributeValue
+  validateMidiAttributeValue,
+  validMidiAttributes
 } from "./abc-midi"
 import {
   voiceAttributes,
@@ -26,6 +34,7 @@ import {
   getKeyAttributeConfig
 } from "./abc-key"
 
+import { allDecorations } from "./abc-constants";
 
 
 // Add MIDI to directives set (special handling)
@@ -45,40 +54,66 @@ const keyAttrPattern = keyAttributes
   .join("|")
 
 // Build complete word matching regex (includes both voice and key attributes)
-const wordMatchRegex = new RegExp(`%%\\w*|[A-Za-z]:?|${voiceAttrPattern}|${keyAttrPattern}|\\w+`)
+const wordMatchRegex = new RegExp(`%%\\w*|[A-Za-z]:?|${voiceAttrPattern}|${keyAttrPattern}|[!+]\\w*|\\w+`)
 
 // Autocompletion for directives and info keys
 function abcCompletions(context: CompletionContext) {
-  // 1. Attempt to match a word before cursor
+  // 1. Attempt to match a word
   let word = context.matchBefore(wordMatchRegex)
+
+  // 2. Fallback: If regex failed, specifically check for ! or + triggers
+  if (!word) {
+    word = context.matchBefore(/[!+]\w*/)
+  }
 
   const line = context.state.doc.lineAt(context.pos)
   const lineText = context.state.doc.sliceString(line.from, context.pos)
 
-  // 2. FIX: Handle the case where we are strictly after "%%MIDI " (with space)
-  if (!word && /^%%MIDI\s+$/.test(lineText)) {
-    word = { from: context.pos, to: context.pos, text: "" }
+  // 3. Handle Header Edge Cases (Spaces after headers)
+  // We do this BEFORE checking 'if (!word)' so we can inject a dummy word to trigger completion
+  if (!word) {
+    if (/^%%MIDI\s+$/.test(lineText) ||
+      /^M:\s*$/.test(lineText) ||
+      /^[VK]:.*\s+$/.test(lineText)) {
+      word = { from: context.pos, to: context.pos, text: "" }
+    }
   }
 
-  // 3. FIX: Handle the case where we are strictly after "M:" or "M: "
-  if (!word && /^M:\s*$/.test(lineText)) {
-    word = { from: context.pos, to: context.pos, text: "" }
-  }
-
-  // 4. FIX: Handle Voice (V:) or Key (K:) lines ending in space
-  // This detects "V:ID " or "K:C ". 
-  // The [VK] matches either V or K.
-  // The .* ensures we have content (like a voice ID or Key Tonic) before the space.
-  if (!word && /^[VK]:.*\s+$/.test(lineText)) {
-    word = { from: context.pos, to: context.pos, text: "" }
-  }
-
+  // 4. SAFETY CHECK: If we still have no word, exit
   if (!word) return null
+
+  // 5. Decoration Autocomplete (!trill! or +trill+)
+  if (word.text.startsWith("!") || word.text.startsWith("+")) {
+    const prefix = word.text.charAt(0);
+    return {
+      from: word.from,
+      options: allDecorations.map(dec => ({
+        label: `${prefix}${dec}${prefix}`,
+        type: "keyword",
+        info: "Decoration"
+      }))
+    }
+  }
 
   // ----------------------------------------------------------------
   // EXCLUSIVE GUARD: MIDI LINE
   // ----------------------------------------------------------------
   if (/^%%MIDI\b/.test(lineText)) {
+    // 1. Extract the text after "%%MIDI"
+    const textAfterHeader = lineText.replace(/^%%MIDI\s+/, "");
+
+    // 2. Split into individual words
+    const tokens = textAfterHeader.split(/\s+/);
+
+    // 3. Check if a valid command ALREADY exists on this line.
+    // We ignore the word currently being typed (word.text) to allow "prog" -> "program" completion.
+    const hasExistingCommand = tokens.some(token =>
+      validMidiAttributes.has(token) && token !== word?.text
+    );
+
+    // 4. If a command exists, STOP suggestions (return null)
+    if (hasExistingCommand) return null;
+
     const textBeforeWord = context.state.doc.sliceString(line.from, word.from)
     const isMidiAttributeSlot = /^%%MIDI\s*$/.test(textBeforeWord)
 
@@ -88,7 +123,19 @@ function abcCompletions(context: CompletionContext) {
         options: midiAttributes.map(attr => ({
           label: attr.attribute,
           type: "property",
-          info: attr.description
+          detail: attr.valueType,
+          // Returns a DOM element for rich styling
+          info: () => {
+            const dom = document.createElement("div")
+            dom.innerHTML = `
+              <div style="font-weight: bold; margin-bottom: 5px;">${attr.description}</div>
+              <div style="color: gray; font-size: 0.9em;">Example:</div>
+              <code style="display: block; background: #222; color: #beb; padding: 4px; border-radius: 3px;">
+                ${attr.example || ""}
+              </code>
+            `
+            return dom
+          }
         }))
       }
     }
@@ -172,10 +219,21 @@ function abcCompletions(context: CompletionContext) {
   if (word.text.match(/^[A-Za-z]:?$/) && !isInAnyInfoLine && !lineStartsWithDirective && (isAtStartOfLine || isInlineField)) {
     return {
       from: word.from,
-      options: Array.from(validInfoKeys).map(k => ({
-        label: `${k}:`,
+      options: infoFields.map(field => ({
+        label: `${field.key}:`,
         type: "variable",
-        info: infoFieldDefinitions[k] || "ABC info field"
+        // Rich documentation with HTML styling
+        info: () => {
+          const dom = document.createElement("div")
+          dom.innerHTML = `
+            <div style="font-weight: bold; margin-bottom: 5px;">${field.description}</div>
+            <div style="color: gray; font-size: 0.9em;">Example:</div>
+            <code style="display: block; background: #222; color: #beb; padding: 4px; border-radius: 3px; margin-top: 2px;">
+              ${field.example}
+            </code>
+          `
+          return dom
+        }
       }))
     }
   }
@@ -377,6 +435,77 @@ const abcLinter = linter(view => {
   return diagnostics
 })
 
+// --- KEY SIGNATURE HELP TOOLTIP ---
+export const keySignatureTooltip = StateField.define<Tooltip | null>({
+  create: () => null,
+  update(tooltip, tr) {
+    // 1. Get current cursor position
+    const { state } = tr;
+    const selection = state.selection.main;
+
+    // Only show if cursor is a single point (not a range selection)
+    if (!selection.empty) return null;
+
+    // 2. Get the text of the current line
+    const line = state.doc.lineAt(selection.head);
+    const text = line.text;
+
+    // 3. Regex: Start of line, optional space, K, colon, optional space, End of line
+    // This ensures it ONLY shows when it is exactly "K:" or "K: " with nothing else.
+    const isKeyHeader = /^\s*K:\s*$/.test(text);
+
+    if (isKeyHeader) {
+      return {
+        pos: selection.head,
+        above: false, // Show above the cursor
+        strictSide: true,
+        create(view) {
+          const dom = document.createElement("div");
+          dom.className = "cm-abc-tooltip";
+
+          // Styling directly here to ensure it looks good in Obsidian immediately
+          Object.assign(dom.style, {
+            padding: "6px 10px",
+            borderRadius: "4px",
+            fontSize: "0.85em",
+            fontFamily: "monospace",
+            backgroundColor: "var(--background-secondary, #222)", // Obsidian theme var
+            color: "var(--text-normal, #eee)",
+            border: "1px solid var(--background-modifier-border, #444)",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+            maxWidth: "450px",
+            zIndex: "100"
+          });
+
+          dom.innerHTML = `
+            <div style="font-weight:bold; margin-bottom:4px; color:var(--text-accent, #7da3c0);">K: Syntax Helper</div>
+            <div>
+              <strong>K:</strong> &lt;key&gt;
+              <span style="opacity:0.7">
+                [clef=&lt;clef type&gt;]
+                [line number]
+                [octave=&lt;number&gt;]
+                [transpose=&lt;number&gt;]
+                [+8] [-8] [^8] [_8]
+                [stafflines=&lt;number&gt;]
+                [staffscale=&lt;number&gt;]
+                [cue=&lt;on/off&gt;]
+              </span>
+            </div>
+            <div style="margin-top:4px; font-size:0.9em; opacity: 0.8;">
+              Required: &lt;angular&gt;, Optional: [square]
+            </div>
+          `;
+          return { dom };
+        }
+      };
+    }
+
+    return null;
+  },
+  provide: (f) => showTooltip.from(f)
+});
+
 // Generate style tags dynamically from voice attributes and MIDI attributes
 function generateStyleTags() {
   const tags: Record<string, any> = {
@@ -519,6 +648,7 @@ export const abcLanguage = LRLanguage.define({
 export function abc(extraCompletions: any[] = []) {
   return new LanguageSupport(abcLanguage, [
     autocompletion({ override: [abcCompletions, ...extraCompletions] }),
-    abcLinter
+    abcLinter,
+    keySignatureTooltip
   ])
 }
