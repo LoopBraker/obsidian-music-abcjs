@@ -397,20 +397,72 @@ export class DrumGrid {
     }
 
     private identifyCurrentBar(content: string, cursor: number) {
-        // Simple bar detection: look for | before and | after
-        // This is naive and might fail with complex abc, but fits the "simple" requirement
+        // 1. Identify the current line boundaries
+        const beforeCursor = content.substring(0, cursor);
+        const lastNewline = beforeCursor.lastIndexOf('\n');
+        const lineStart = lastNewline === -1 ? 0 : lastNewline + 1;
 
-        // Search backwards for '|'
-        let start = content.lastIndexOf('|', cursor - 1);
-        if (start === -1) start = 0; // Start of string if no bar line found
-        else start += 1; // Move past the '|'
+        const afterCursor = content.substring(cursor);
+        const nextNewline = afterCursor.search('\n');
+        const lineEnd = nextNewline === -1 ? content.length : cursor + nextNewline;
 
-        // Search forwards for '|'
-        let end = content.indexOf('|', cursor);
-        if (end === -1) end = content.length;
+        const currentLine = content.substring(lineStart, lineEnd).trim();
 
-        this.currentBarContext = { start, end };
-        this.currentBar = content.substring(start, end);
+        // 2. Check if this is a valid music line
+        // Ignore Headers (K:, M:), Comments (%), Lyrics (w:), or Voice definitions at start of line
+        if (currentLine.startsWith('%') ||
+            currentLine.startsWith('%%') ||
+            currentLine.startsWith('w:') ||
+            /^[A-Z]:/.test(currentLine)) {
+
+            this.currentBar = "";
+            this.currentBarContext = null;
+            return;
+        }
+
+        // 3. Find Bar Delimiters relative to cursor
+        // We need indices relative to the whole 'content' string
+
+        // Search backwards from cursor for | or ::
+        const barSeparator = /\||::/;
+
+        // We search in the substring from lineStart to cursor
+        const lineBeforeCursor = content.substring(lineStart, cursor);
+        const lastPipe = lineBeforeCursor.lastIndexOf('|');
+        const lastDoubleColon = lineBeforeCursor.lastIndexOf('::');
+
+        let localStart = 0; // Relative to lineStart
+        let delimiterLength = 0;
+
+        if (lastPipe > -1 || lastDoubleColon > -1) {
+            if (lastPipe > lastDoubleColon) {
+                localStart = lastPipe;
+                delimiterLength = 1;
+            } else {
+                localStart = lastDoubleColon;
+                delimiterLength = 2;
+            }
+            // Move past the delimiter
+            localStart += delimiterLength;
+        }
+
+        // Absolute start index
+        const absStart = lineStart + localStart;
+
+        // Search forwards from cursor for | or ::
+        // We search in the substring from cursor to lineEnd
+        const lineAfterCursor = content.substring(cursor, lineEnd);
+        let localEnd = lineAfterCursor.search(barSeparator);
+
+        if (localEnd === -1) {
+            localEnd = lineAfterCursor.length;
+        }
+
+        // Absolute end index
+        const absEnd = cursor + localEnd;
+
+        this.currentBarContext = { start: absStart, end: absEnd };
+        this.currentBar = content.substring(absStart, absEnd);
     }
 
     private render() {
