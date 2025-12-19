@@ -608,7 +608,7 @@ export class DrumGrid {
         });
 
         // --- Plus Button Row ---
-        // Find instruments not yet visible
+        // Find instruments not yet visible (considering grouped hi-hats as one)
         const visibleChars = new Set<string>();
         for (const row of this.visibleRows) {
             if (row.type === 'grouped') {
@@ -636,10 +636,13 @@ export class DrumGrid {
             addBtn.style.padding = '4px 8px';
             addBtn.style.cursor = 'pointer';
 
-            // --- UPDATED CLICK HANDLER ---
-            addBtn.addEventListener('click', (e) => {
-                e.stopPropagation(); // Prevent document click from closing it immediately
-                this.showAddInstrumentMenu(e, hiddenMaps);
+            addBtn.addEventListener('click', () => {
+                // Add the first hidden instrument (one not already visible)
+                const nextMap = hiddenMaps[0];
+                if (nextMap) {
+                    this.visibleMaps.push(nextMap);
+                    this.render();
+                }
             });
         }
     }
@@ -1001,84 +1004,6 @@ export class DrumGrid {
         applyChange(newBar);
     }
 
-    private showAddInstrumentMenu(event: MouseEvent, hiddenMaps: PercMap[]) {
-        this.closeContextMenu();
-
-        const menu = document.createElement('div');
-        menu.className = 'abc-drum-context-menu';
-        menu.style.position = 'fixed';
-        menu.style.left = `${event.clientX}px`;
-        menu.style.top = `${event.clientY}px`;
-        menu.style.backgroundColor = 'var(--background-primary)';
-        menu.style.border = '1px solid var(--background-modifier-border)';
-        menu.style.borderRadius = '6px';
-        menu.style.padding = '4px 0';
-        menu.style.zIndex = '1000';
-        menu.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
-        menu.style.minWidth = '150px';
-        menu.style.maxHeight = '300px'; // Add scroll if list is long
-        menu.style.overflowY = 'auto';
-
-        // Header for the menu (Optional)
-        const header = document.createElement('div');
-        header.innerText = "Add Instrument";
-        header.style.padding = '4px 12px';
-        header.style.fontSize = '11px';
-        header.style.color = 'var(--text-muted)';
-        header.style.borderBottom = '1px solid var(--background-modifier-border)';
-        header.style.marginBottom = '4px';
-        menu.appendChild(header);
-
-        hiddenMaps.forEach(map => {
-            const item = document.createElement('div');
-            item.className = 'abc-drum-context-menu-item';
-            item.style.padding = '6px 12px';
-            item.style.cursor = 'pointer';
-            item.style.display = 'flex';
-            item.style.alignItems = 'center';
-            item.style.fontSize = '12px';
-            item.style.color = 'var(--text-normal)';
-
-            // Label
-            const labelSpan = document.createElement('span');
-            labelSpan.innerText = map.label;
-            item.appendChild(labelSpan);
-
-            // Hover effect
-            item.addEventListener('mouseenter', () => {
-                item.style.backgroundColor = 'var(--background-modifier-hover)';
-            });
-            item.addEventListener('mouseleave', () => {
-                item.style.backgroundColor = 'transparent';
-            });
-
-            // Click action
-            item.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.closeContextMenu();
-
-                // Add the selected map to visible list
-                this.visibleMaps.push(map);
-
-                // Re-render the grid to show the new row
-                this.render();
-            });
-
-            menu.appendChild(item);
-        });
-
-        document.body.appendChild(menu);
-        this.contextMenu = menu;
-
-        // Adjust position if menu goes off screen
-        const rect = menu.getBoundingClientRect();
-        if (rect.right > window.innerWidth) {
-            menu.style.left = `${window.innerWidth - rect.width - 10}px`;
-        }
-        if (rect.bottom > window.innerHeight) {
-            menu.style.top = `${window.innerHeight - rect.height - 10}px`;
-        }
-    }
     // Show context menu for hi-hat with Close/Open/Accent options
     private showHiHatContextMenu(event: MouseEvent, tickIndex: number, instrument: GroupedInstrument, currentState: HiHatState) {
         this.closeContextMenu();
