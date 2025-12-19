@@ -446,8 +446,8 @@ export class DrumGrid {
             localStart += delimiterLength;
         }
 
-        // Absolute start index
-        const absStart = lineStart + localStart;
+        // Initial Absolute start index (immediately after the pipe)
+        let absStart = lineStart + localStart;
 
         // Search forwards from cursor for | or ::
         // We search in the substring from cursor to lineEnd
@@ -460,6 +460,39 @@ export class DrumGrid {
 
         // Absolute end index
         const absEnd = cursor + localEnd;
+
+        // --- NEW STEP 4: Trim Inline Headers (e.g., [V:K], [M:4/4]) ---
+        // We look at the candidate bar string to see if it starts with an inline field.
+        // We only want to shift the start, we don't change the end.
+
+        const rawBarCandidate = content.substring(absStart, absEnd);
+
+        // Regex Explanation:
+        // ^\s*             : Matches optional whitespace at the beginning (e.g. "|  [V:1]")
+        // (                : Group to capture the headers
+        //   (?:            : Non-capturing group for the field itself
+        //     \[[A-Za-z]:  : Starts with '[' followed by a Letter and ':' (e.g. [V:, [M:)
+        //     [^\]]*       : Anything that isn't a closing bracket
+        //     \]           : Closing bracket
+        //     \s*          : Optional whitespace after the bracket
+        //   )+             : Allow one or more headers (e.g. [V:1][K:perc])
+        // )
+        const inlineHeaderRegex = /^\s*((?:\[[A-Za-z]:[^\]]*\]\s*)+)/;
+
+        const headerMatch = rawBarCandidate.match(inlineHeaderRegex);
+
+        if (headerMatch) {
+            // headerMatch[0] is the full text of the headers including surrounding spaces.
+            // Example: "  [V:K]  "
+            // We shift absStart forward by this length.
+            absStart += headerMatch[0].length;
+        }
+
+        // 5. Set Context
+        // If the shift moved start past end (empty bar with just header), handle gracefully
+        if (absStart > absEnd) {
+            absStart = absEnd;
+        }
 
         this.currentBarContext = { start: absStart, end: absEnd };
         this.currentBar = content.substring(absStart, absEnd);
