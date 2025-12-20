@@ -9,15 +9,21 @@ interface PercMap {
     midi: number;
 }
 
-// Grouped instrument (like Hi-Hat with closed/open/accent)
+// State now represents the logical intent, not just "closed/open"
+type NoteState = 'base' | 'alt' | 'decoration' | 'flam' | null;
+
 interface GroupedInstrument {
     type: 'grouped';
     label: string;
-    closedChar: string;    // e.g., 'g' for closed hi-hat
-    openChar: string;      // e.g., '^g' for open hi-hat
-    closedMidi: number;
-    openMidi: number;
+    style: 'hihat' | 'snare'; // Determines the icons and specific decorations
+
+    baseChar: string;    // e.g. 'g' (Closed HH) or 'c' (Snare)
+    baseMidi: number;
+
+    altChar: string;     // e.g. '^g' (Open HH) or 'd' (Side Stick)
+    altMidi: number;
 }
+
 
 // Regular single instrument
 interface SingleInstrument {
@@ -43,12 +49,12 @@ interface Token {
 
 // GM Drum Map (Subset for labels)
 const GM_DRUMS: { [key: number]: string } = {
-    35: "Kick 1",
-    36: "Kick 2",
+    35: "Kick",
+    36: "E-Kick",
     37: "Side Stick",
     38: "Snare",
     39: "Hand Clap",
-    40: "Electric Snare",
+    40: "E-Snare",
     41: "Floor Tom 2",
     42: "Closed Hi-Hat",
     43: "Floor Tom 1",
@@ -228,12 +234,11 @@ export class DrumGrid {
         if (usedMaps.length > 0) {
             nextVisible = usedMaps;
         } else {
-            // Fall back to first 3 instruments (default behavior for new/empty bars)
+            // Fall back to first 3 instruments
             nextVisible = this.percMaps.slice(0, this.maxVisible);
         }
 
         // --- ENFORCE HI-HAT PAIRING (42 & 46) ---
-        // This runs regardless of whether we used notes or fallback
         const hasClosed = nextVisible.some(m => m.midi === 42);
         const hasOpen = nextVisible.some(m => m.midi === 46);
 
@@ -243,6 +248,19 @@ export class DrumGrid {
         } else if (!hasClosed && hasOpen) {
             const closedMap = this.percMaps.find(m => m.midi === 42);
             if (closedMap) nextVisible.push(closedMap);
+        }
+
+        // --- ENFORCE SNARE PAIRING (38 & 37) ---
+        // FIX: Add this block so Snare always pulls in Side Stick
+        const hasSnare = nextVisible.some(m => m.midi === 38);
+        const hasSideStick = nextVisible.some(m => m.midi === 37);
+
+        if (hasSnare && !hasSideStick) {
+            const sideStickMap = this.percMaps.find(m => m.midi === 37);
+            if (sideStickMap) nextVisible.push(sideStickMap);
+        } else if (!hasSnare && hasSideStick) {
+            const snareMap = this.percMaps.find(m => m.midi === 38);
+            if (snareMap) nextVisible.push(snareMap);
         }
 
         this.visibleMaps = nextVisible;
@@ -303,25 +321,43 @@ export class DrumGrid {
         const rows: InstrumentRow[] = [];
         const processed = new Set<string>();
 
-        // Look for hi-hat pairs (MIDI 42 = closed, 46 = open)
-        const closedHiHat = this.visibleMaps.find(m => m.midi === 42);
-        const openHiHat = this.visibleMaps.find(m => m.midi === 46);
+        // 1. Check for Hi-Hat Pair (42 & 46)
+        const closedHH = this.visibleMaps.find(m => m.midi === 42);
+        const openHH = this.visibleMaps.find(m => m.midi === 46);
 
-        if (closedHiHat && openHiHat) {
-            // Create grouped hi-hat row
+        if (closedHH && openHH) {
             rows.push({
                 type: 'grouped',
                 label: 'Hi-Hat',
-                closedChar: closedHiHat.char,
-                openChar: openHiHat.char,
-                closedMidi: 42,
-                openMidi: 46
+                style: 'hihat',
+                baseChar: closedHH.char,
+                baseMidi: 42,
+                altChar: openHH.char,
+                altMidi: 46
             });
-            processed.add(closedHiHat.char);
-            processed.add(openHiHat.char);
+            processed.add(closedHH.char);
+            processed.add(openHH.char);
         }
 
-        // Add remaining instruments as single rows
+        // 2. Check for Snare Pair (38 & 37)
+        const snare = this.visibleMaps.find(m => m.midi === 38);
+        const sideStick = this.visibleMaps.find(m => m.midi === 37);
+
+        if (snare && sideStick) {
+            rows.push({
+                type: 'grouped',
+                label: 'Snare',
+                style: 'snare',
+                baseChar: snare.char,
+                baseMidi: 38,
+                altChar: sideStick.char,
+                altMidi: 37
+            });
+            processed.add(snare.char);
+            processed.add(sideStick.char);
+        }
+
+        // 3. Add remaining singles
         for (const map of this.visibleMaps) {
             if (!processed.has(map.char)) {
                 rows.push({
@@ -337,17 +373,10 @@ export class DrumGrid {
         return rows;
     }
 
-    // Parse bar to detect hi-hat states at each tick
+    // Generic parser for grouped instruments
     // Returns: { char: string, state: HiHatState }[][] for 16 ticks
-    private parseBarToHiHatGrid(barText: string, closedChar: string, openChar: string): HiHatState[] {
-        const grid: HiHatState[] = Array(16).fill(null);
-
-        // We need to look at the raw bar text to detect patterns like:
-        // o^g (open), !>!g (accent)
-        // IMPORTANT: Prefixes (!>!, o) can be OUTSIDE chords: !>![gF], o[gF]
-
-        // Tokenize with raw text preserved - include prefixes outside chords
-        // Revised Regex: handles generic decorations, optional 'o', and quoted strings
+    private parseBarToStateGrid(barText: string, instrument: GroupedInstrument): NoteState[] {
+        const grid: NoteState[] = Array(16).fill(null);
         const tokenRegex = /((?:!.*?!)*(?:o)?(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
 
         let currentTick = 0;
@@ -355,42 +384,44 @@ export class DrumGrid {
 
         while ((match = tokenRegex.exec(barText)) !== null) {
             if (currentTick >= 16) break;
-
             const fullText = match[0];
             const coreContent = match[1];
             const durationStr = match[2];
 
-            // ... Duration parsing logic (same as before) ...
+            // ... (Duration parsing logic - same as before) ...
             let duration = 1;
             if (durationStr === '/') duration = 0.5;
-            // (Keep your existing duration logic here for brevity)
-            if (coreContent.startsWith('"')) duration = 0;
             else if (durationStr && !durationStr.includes('/')) duration = parseInt(durationStr);
-
+            if (coreContent.startsWith('"')) duration = 0;
             const ticks = (duration === 0 && coreContent.startsWith('"')) ? 0 : (Math.round(duration) || 1);
+
             const tickIdx = Math.floor(currentTick);
 
-            const hasAccent = coreContent.match(/^!.*?!/) ? coreContent.includes('!>!') : false;
-            // 'o' is still used for open
+            // 1. Detect Decorations
+            // Hi-Hat Accent (!>!) or Snare Ghost (!g!)
+            const isDecorated = instrument.style === 'hihat'
+                ? (coreContent.includes('!>!'))
+                : (coreContent.includes('!g!'));
+
+            // 2. Detect "Alternate" State
+            // Hi-Hat Open (prefix 'o' OR char matches altChar) 
+            // Snare Side Stick (char matches altChar)
             const hasOpenPrefix = /^((?:!.*?!)*)o/.test(coreContent);
 
+            // Clean content to check inner chars
             let innerContent = coreContent.replace(/^((?:!.*?!)*)(o)?/, '');
-            if (innerContent.startsWith('[')) {
-                innerContent = innerContent.slice(1, -1);
-            }
+            if (innerContent.startsWith('[')) innerContent = innerContent.slice(1, -1);
 
-            // Simple check: does the string contain the char?
-            const hasClosedChar = innerContent.includes(closedChar);
-            const hasOpenChar = innerContent.includes(openChar);
+            const hasBaseChar = innerContent.includes(instrument.baseChar);
+            const hasAltChar = innerContent.includes(instrument.altChar);
 
-            if (hasClosedChar || hasOpenChar) {
-                if (hasAccent) {
-                    grid[tickIdx] = 'accent';
-                } else if (hasOpenPrefix || hasOpenChar) {
-                    // It is open if it has 'o' prefix OR if the char itself is the open map char (e.g. ^g)
-                    grid[tickIdx] = 'open';
+            if (hasBaseChar || hasAltChar) {
+                if (isDecorated) {
+                    grid[tickIdx] = 'decoration'; // Accent or Ghost
+                } else if ((instrument.style === 'hihat' && hasOpenPrefix) || hasAltChar) {
+                    grid[tickIdx] = 'alt'; // Open or Side Stick
                 } else {
-                    grid[tickIdx] = 'closed';
+                    grid[tickIdx] = 'base'; // Closed or Normal Snare
                 }
             }
 
@@ -577,10 +608,10 @@ export class DrumGrid {
             gridArea.style.height = `${cellHeight}px`;
             gridArea.style.gap = `${beatGroupGap}px`;
 
-            // Get hi-hat grid if this is a grouped row
-            let hiHatGrid: HiHatState[] | null = null;
+            let stateGrid: NoteState[] | null = null; // Renamed variable for clarity
+
             if (instrumentRow.type === 'grouped') {
-                hiHatGrid = this.parseBarToHiHatGrid(this.currentBar, instrumentRow.closedChar, instrumentRow.openChar);
+                stateGrid = this.parseBarToStateGrid(this.currentBar, instrumentRow);
             }
 
             // Render 4 beat groups
@@ -622,44 +653,55 @@ export class DrumGrid {
                     vLine.style.borderLeft = '1px dashed var(--background-modifier-border)';
                     vLine.style.pointerEvents = 'none';
 
-                    if (instrumentRow.type === 'grouped' && hiHatGrid) {
+                    if (instrumentRow.type === 'grouped' && stateGrid) {
+                        const stateGrid = this.parseBarToStateGrid(this.currentBar, instrumentRow);
                         // Grouped hi-hat rendering
-                        const state = hiHatGrid[globalStep];
+                        const state = stateGrid[globalStep];
                         if (state) {
-                            const diamond = stepContainer.createDiv({ cls: 'abc-drum-diamond abc-drum-diamond-hihat' });
+                            const diamond = stepContainer.createDiv({ cls: 'abc-drum-diamond' });
+                            // styling...
                             diamond.style.width = '14px';
                             diamond.style.height = '14px';
                             diamond.style.backgroundColor = 'var(--text-normal)';
                             diamond.style.transform = 'rotate(45deg)';
-                            diamond.style.zIndex = '1';
-                            diamond.style.boxShadow = '0 1px 3px rgba(0,0,0,0.3)';
-                            diamond.style.position = 'relative';
                             diamond.style.display = 'flex';
                             diamond.style.justifyContent = 'center';
                             diamond.style.alignItems = 'center';
 
-                            // Add indicator for open or accent
-                            if (state === 'open' || state === 'accent') {
-                                const indicator = diamond.createDiv({ cls: 'abc-drum-diamond-indicator' });
-                                indicator.style.transform = 'rotate(-45deg)'; // Counter-rotate
-                                indicator.style.fontSize = '10px';
-                                indicator.style.fontWeight = 'bold';
-                                indicator.style.color = 'var(--background-primary)';
-                                indicator.style.lineHeight = '1';
-                                indicator.innerText = state === 'open' ? '○' : '>';
+                            // Indicator Logic
+                            const indicator = diamond.createDiv({ cls: 'abc-drum-diamond-indicator' });
+                            indicator.style.transform = 'rotate(-45deg)';
+                            indicator.style.fontSize = '10px';
+                            indicator.style.fontWeight = 'bold';
+                            indicator.style.color = 'var(--background-primary)';
+                            indicator.style.lineHeight = '1';
+
+                            if (instrumentRow.style === 'hihat') {
+                                if (state === 'alt') indicator.innerText = '○'; // Open
+                                if (state === 'decoration') indicator.innerText = '>'; // Accent
+                            }
+                            else if (instrumentRow.style === 'snare') {
+                                if (state === 'alt') {
+                                    indicator.innerText = 'x'; // Side Stick
+                                    // Optional: Make font slightly larger for x
+                                    indicator.style.fontSize = '12px';
+                                }
+                                if (state === 'decoration') {
+                                    indicator.innerText = '(•)'; // Ghost Note
+                                    indicator.style.fontSize = '8px'; // Smaller to fit
+                                }
                             }
                         }
 
-                        // Left click: toggle closed hi-hat
+                        // Click Handlers
                         stepContainer.addEventListener('click', (e) => {
                             e.preventDefault();
-                            this.toggleHiHat(globalStep, instrumentRow as GroupedInstrument, 'closed');
+                            this.toggleGroupedNote(globalStep, instrumentRow, 'base');
                         });
 
-                        // Right click: show context menu
                         stepContainer.addEventListener('contextmenu', (e) => {
                             e.preventDefault();
-                            this.showHiHatContextMenu(e, globalStep, instrumentRow as GroupedInstrument, state);
+                            this.showGroupedContextMenu(e, globalStep, instrumentRow, state);
                         });
                     } else if (instrumentRow.type === 'single') {
                         // Single instrument rendering (original behavior)
@@ -681,7 +723,7 @@ export class DrumGrid {
 
                     // Hover effect
                     const isActive = instrumentRow.type === 'grouped'
-                        ? (hiHatGrid && hiHatGrid[globalStep] !== null)
+                        ? (stateGrid && stateGrid[globalStep] !== null)
                         : (parsedNotes[globalStep] && parsedNotes[globalStep].includes((instrumentRow as SingleInstrument).char));
 
                     stepContainer.addEventListener('mouseenter', () => {
@@ -701,8 +743,8 @@ export class DrumGrid {
         const visibleChars = new Set<string>();
         for (const row of this.visibleRows) {
             if (row.type === 'grouped') {
-                visibleChars.add(row.closedChar);
-                visibleChars.add(row.openChar);
+                visibleChars.add(row.baseChar);
+                visibleChars.add(row.altChar);
             } else {
                 visibleChars.add(row.char);
             }
@@ -1019,10 +1061,10 @@ export class DrumGrid {
                     // We need to check if the remaining note is a hi-hat that should keep the 'o'
                     const remainingNote = remainingNotes[0];
 
-                    // Check if remaining note is an "open-able" instrument (hi-hat open char)
+                    // Check if remaining note is an "open-able" or "alt" instrument
                     let shouldKeepOpen = false;
                     for (const row of this.visibleRows) {
-                        if (row.type === 'grouped' && remainingNote.includes(row.openChar)) {
+                        if (row.type === 'grouped' && remainingNote.includes(row.altChar)) {
                             shouldKeepOpen = true;
                             break;
                         }
@@ -1204,7 +1246,7 @@ export class DrumGrid {
         }
     }
     // Show context menu for hi-hat with Close/Open/Accent options
-    private showHiHatContextMenu(event: MouseEvent, tickIndex: number, instrument: GroupedInstrument, currentState: HiHatState) {
+    private showGroupedContextMenu(event: MouseEvent, tickIndex: number, instrument: GroupedInstrument, currentState: NoteState) {
         this.closeContextMenu();
 
         const menu = document.createElement('div');
@@ -1220,11 +1262,17 @@ export class DrumGrid {
         menu.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
         menu.style.minWidth = '120px';
 
-        const options: { label: string; state: HiHatState; icon: string }[] = [
-            { label: 'Closed', state: 'closed', icon: '✕' },
-            { label: 'Open', state: 'open', icon: '○' },
-            { label: 'Accent', state: 'accent', icon: '>' },
-        ];
+        const options: { label: string; state: NoteState; icon: string }[] = [];
+
+        if (instrument.style === 'hihat') {
+            options.push({ label: 'Closed', state: 'base', icon: '✕' });
+            options.push({ label: 'Open', state: 'alt', icon: '○' });
+            options.push({ label: 'Accent', state: 'decoration', icon: '>' });
+        } else if (instrument.style === 'snare') {
+            options.push({ label: 'Snare', state: 'base', icon: '●' });
+            options.push({ label: 'Side Stick', state: 'alt', icon: 'x' });
+            options.push({ label: 'Ghost', state: 'decoration', icon: '(•)' });
+        }
 
         // Add "Remove" option if there's a note
         if (currentState) {
@@ -1271,7 +1319,7 @@ export class DrumGrid {
             item.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.closeContextMenu();
-                this.toggleHiHat(tickIndex, instrument, opt.state);
+                this.toggleGroupedNote(tickIndex, instrument, opt.state);
             });
 
             menu.appendChild(item);
@@ -1291,49 +1339,43 @@ export class DrumGrid {
     }
 
     // Toggle hi-hat note with specific state (closed/open/accent)
-    private toggleHiHat(tickIndex: number, instrument: GroupedInstrument, targetState: HiHatState) {
+    private toggleGroupedNote(tickIndex: number, instrument: GroupedInstrument, targetState: NoteState) {
         if (!this.currentBarContext || this.currentBar === null) return;
 
-        // Parse the bar to understand its structure
-        // We need more sophisticated parsing that preserves decorations and prefixes
+        const stateGrid = this.parseBarToStateGrid(this.currentBar, instrument);
+        const currentState = stateGrid[tickIndex];
 
-        const hiHatGrid = this.parseBarToHiHatGrid(this.currentBar, instrument.closedChar, instrument.openChar);
-        const currentState = hiHatGrid[tickIndex];
-
-        if (targetState === currentState) {
-            targetState = null;
-        }
+        if (targetState === currentState) targetState = null;
 
         let noteStr = '';
-        if (targetState === 'closed') {
-            // WAS: n${instrument.closedChar}
-            noteStr = `${instrument.closedChar}`;
-        } else if (targetState === 'open') {
-            // WAS: on${instrument.openChar}
-            // Keep 'o' if you want the !open! symbol, OR just the char if char implies open
-            // Based on your example: "o^g"
-            noteStr = `o${instrument.openChar}`;
-        } else if (targetState === 'accent') {
-            // WAS: !>!n${instrument.closedChar}
-            noteStr = `!>!${instrument.closedChar}`;
+
+        if (targetState === 'base') {
+            // Closed HH or Normal Snare
+            noteStr = instrument.baseChar;
+        }
+        else if (targetState === 'alt') {
+            // Open HH (o^g) or Side Stick (d)
+            if (instrument.style === 'hihat') {
+                noteStr = `o${instrument.altChar}`;
+            } else {
+                noteStr = instrument.altChar; // Side stick is just the note char, no prefix
+            }
+        }
+        else if (targetState === 'decoration') {
+            // Accent (!>!g) or Ghost (!g!c)
+            if (instrument.style === 'hihat') {
+                noteStr = `!>!${instrument.baseChar}`;
+            } else {
+                noteStr = `!g!${instrument.baseChar}`;
+            }
         }
 
-        this.modifyHiHatInBar(tickIndex, instrument, currentState, targetState, noteStr);
+        this.modifyGroupedNoteInBar(tickIndex, instrument, currentState, targetState, noteStr);
     }
 
     // Modify hi-hat note in the bar
-    private modifyHiHatInBar(tickIndex: number, instrument: GroupedInstrument, currentState: HiHatState, targetState: HiHatState, noteStr: string) {
-        // This is complex because we need to handle:
-        // 1. Chords with multiple notes
-        // 2. Decoration prefixes (!>!, o) can be OUTSIDE chords
-        // 3. Beat grouping
-
-        // Strategy: Parse to tokens, find the token at tickIndex, modify it, rebuild
-
-        // Extended token regex that captures generic decorations (including outside chords)
-        // - (?:!.*?!)* - any number of decorations
-        // - (?:o)? - optional 'o'
-        // - "[^"]*" - quoted strings (annotations) - consume but ignore
+    private modifyGroupedNoteInBar(tickIndex: number, instrument: GroupedInstrument, currentState: NoteState, targetState: NoteState, noteStr: string) {
+        // 1. Parse tokens (Existing logic - kept exactly as is)
         const tokenRegex = /((?:!.*?!)*(?:o)?(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
 
         interface ExtToken {
@@ -1353,7 +1395,7 @@ export class DrumGrid {
 
             let duration = 0;
             if (coreContent.startsWith('"')) {
-                duration = 0; // Ignore duration for annotations
+                duration = 0;
             } else {
                 duration = 1;
                 if (durationStr === '/') duration = 0.5;
@@ -1375,7 +1417,7 @@ export class DrumGrid {
             });
         }
 
-        // Find token at tick
+        // 2. Find token at tick (Existing logic)
         let currentTick = 0;
         let targetTokenIdx = -1;
 
@@ -1387,6 +1429,7 @@ export class DrumGrid {
             currentTick += tokens[i].duration;
         }
 
+        // Helper for dispatching changes
         const applyChange = (newBarText: string) => {
             const view = this.editorViewGetter();
             if (view && this.currentBarContext) {
@@ -1404,28 +1447,17 @@ export class DrumGrid {
             }
         };
 
+        // 3. Handle Append Mode (Existing logic)
         if (targetTokenIdx === -1) {
-            // DEBUG: Log why we didn't find the token
-            console.log("ModifyHiHat: Token not found (Append Mode)", {
-                tickIndex,
-                currentBar: this.currentBar,
-                barContext: this.currentBarContext,
-                tokens: tokens.map(t => ({ text: t.text, range: [t.start, t.end], dur: t.duration }))
-            });
-
-            // APPEND MODE
             const gap = tickIndex - currentTick;
             if (gap < 0) return;
 
             let appendStr = '';
-            // Add beat grouping spaces
             for (let k = 0; k < gap; k++) {
                 const tick = currentTick + k;
                 if (tick > 0 && tick % 4 === 0) appendStr += ' ';
                 appendStr += 'z';
             }
-
-            // Add the new note with beat grouping
             if (tickIndex > 0 && tickIndex % 4 === 0) appendStr += ' ';
 
             if (targetState) {
@@ -1438,7 +1470,7 @@ export class DrumGrid {
             return;
         }
 
-        // Modify existing token
+        // 4. Modify existing token
         const token = tokens[targetTokenIdx];
         let newTokenText = '';
 
@@ -1446,42 +1478,41 @@ export class DrumGrid {
         const durMatch = token.text.match(/([\d\/]+)$/);
         const durationPart = durMatch ? durMatch[1] : '';
 
+        // --- NEW GENERIC LOGIC STARTS HERE ---
+
+        // Define what specific decoration we need to look for based on style
+        // HiHat uses !>!, Snare uses !g!
+        const decorationToRemove = instrument.style === 'hihat' ? '!>!' : '!g!';
+        const escapeRegExp = (string: string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
         if (targetState === null) {
-            // Remove hi-hat from this position
-            // Check if token is a chord (may have prefixes outside)
+            // == DELETION CASE ==
+
             if (token.text.includes('[')) {
-                // Parse prefix and content more robustly
+                // Parse existing prefix and content
                 const prefixMatch = token.text.match(/^((?:!.*?!)*)(o)?(\[.*)/);
                 let decorations = prefixMatch?.[1] || '';
-
-
-                decorations = decorations.replace(/!>!/g, '');
+                // const openPrefix = prefixMatch?.[2] || ''; // Not needed for deletion
                 const chordPart = prefixMatch?.[3] || token.text;
 
-                // Remove hi-hat notes from chord
+                // FIX: Dynamically remove the specific decoration (!>! or !g!)
+                decorations = decorations.replace(new RegExp(escapeRegExp(decorationToRemove), 'g'), '');
+
+                // Extract inner notes
                 let inner = chordPart.match(/\[([^\]]+)\]/)?.[1] || '';
 
-                // Remove patterns like: ^g, g (the hi-hat chars inside chord)
+                // FIX: Remove Base and Alt chars (generic)
                 const removePatterns = [
-                    instrument.openChar,
-                    instrument.closedChar
+                    instrument.baseChar,
+                    instrument.altChar
                 ];
-
-                // Escape special chars for regex
-                const escapeRegExp = (string: string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
                 for (const pat of removePatterns) {
                     inner = inner.replace(new RegExp(escapeRegExp(pat), 'g'), '');
                 }
 
-                // Clean up any remaining notes (without hi-hat prefixes since those went outside)
-                // Use the robust note extraction pattern
-                const remainingNotes: string[] = [];
-                const notePattern = /[\^=_]*[A-Ga-g][,']*/g;
-                let m;
-                while ((m = notePattern.exec(inner)) !== null) {
-                    remainingNotes.push(m[0]);
-                }
+                // Check what remains
+                const remainingNotes = inner.match(/[\^=_]*[A-Ga-g][,']*/g) || [];
 
                 if (remainingNotes.length === 0) {
                     newTokenText = 'z' + durationPart;
@@ -1497,91 +1528,100 @@ export class DrumGrid {
                 newTokenText = 'z' + durationPart;
             }
         } else {
-            // Add/change hi-hat state
-            // noteStr examples: "g" (closed), "o^g" (open), "!>!g" (accent)
+            // == ADD / CHANGE CASE ==
 
-            // Extract modifiers from the requested noteStr
+            // noteStr comes from toggleGroupedNote (e.g., "!g!c" or "o^g")
+
+            // Extract modifiers from the REQUESTED noteStr
             const noteMatch = noteStr.match(/^((?:!.*?!)*)(o)?(.*)$/);
             const newDecorations = noteMatch?.[1] || '';
             const newOpenPrefix = noteMatch?.[2] || '';
             const innerNote = noteMatch?.[3] || noteStr;
 
             if (token.text.includes('[')) {
-                // Chord - need to replace/add hi-hat
-                // First, extract any existing prefixes from the chord token
+                // -- CHORD LOGIC --
+
                 const existingPrefixMatch = token.text.match(/^((?:!.*?!)*)(o)?(\[.*)/);
                 let existingDecorations = existingPrefixMatch?.[1] || '';
-                // const existingOpen = existingPrefixMatch?.[2] || '';
+                // const existingOpen = existingPrefixMatch?.[2] || ''; 
                 const chordPart = existingPrefixMatch?.[3] || token.text;
 
                 let inner = chordPart.match(/\[([^\]]+)\]/)?.[1] || '';
 
-                // First remove any existing hi-hat patterns from inside the chord
+                // 1. Remove any existing versions of this instrument (Base or Alt)
                 const removePatterns = [
-                    `!>!${instrument.openChar}`,
-                    `!>!${instrument.closedChar}`,
-                    instrument.openChar,
-                    instrument.closedChar
+                    instrument.baseChar,
+                    instrument.altChar
                 ];
-
-                const escapeRegExp = (string: string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
                 for (const pat of removePatterns) {
                     inner = inner.replace(new RegExp(escapeRegExp(pat), 'g'), '');
                 }
 
-                // Add new hi-hat note (just the inner part, without o prefix)
+                // 2. Add new note content
                 inner = inner + innerNote;
 
-                // Since we are setting a specific Hi-Hat state, we remove the 'Accent' (!>!) 
-                // from the existing decorations because the new state will provide it if needed.
-                existingDecorations = existingDecorations.replace(/!>!/g, '');
+                // 3. Clean up OLD specific decorations (remove !>! or !g! from the existing set)
+                // This ensures if we switch from Ghost (!g!) to Normal, !g! is gone.
+                existingDecorations = existingDecorations.replace(new RegExp(escapeRegExp(decorationToRemove), 'g'), '');
 
-                // Combine decorations
+                // 4. Combine decorations
                 let combinedDecorations = existingDecorations;
-                // Add the new decorations (e.g. if new state is Accent, this adds !>!)
                 if (newDecorations && !combinedDecorations.includes(newDecorations)) {
                     combinedDecorations += newDecorations;
                 }
 
-                // logic: If we are changing the Hi-Hat, the 'o' state is determined PURELY 
-                // by the new target state (newOpenPrefix). We discard the old 'o'.
+                // 5. Determine 'o' prefix
+                // If the new note is Open HiHat, it brings 'o'. If it's Snare or Closed HH, 'newOpenPrefix' is empty.
+                // We discard the old 'o' because the state of this instrument dictates it.
                 const combinedOpen = newOpenPrefix || '';
 
-                // Build with prefixes OUTSIDE the chord
+                // Build token
                 newTokenText = `${combinedDecorations}${combinedOpen}[${inner}]${durationPart}`;
+
             } else if (token.text.match(/^z/i)) {
-                // Rest - replace with note (full noteStr is fine here, no chord)
+                // -- REST LOGIC --
                 newTokenText = noteStr + durationPart;
+
             } else {
-                // Single note - check if it's a hi-hat note or another instrument
-                // First strip any existing prefixes from the token
+                // -- SINGLE NOTE LOGIC --
+
+                // Existing single note... check if it IS this instrument or another one
                 const existingMatch = token.text.match(/^((?:!.*?!)*)(o)?(.*)$/);
                 const existingDecorations = existingMatch?.[1] || '';
                 const coreToken = existingMatch?.[3] || token.text;
                 const coreTokenNoDir = coreToken.replace(/[\d\/]+$/, '');
 
-                const isHiHat = coreTokenNoDir.includes(instrument.closedChar) ||
-                    coreTokenNoDir.includes(instrument.openChar);
+                const isThisInstrument = coreTokenNoDir.includes(instrument.baseChar) ||
+                    coreTokenNoDir.includes(instrument.altChar);
 
-                if (isHiHat) {
-                    // Replace with new hi-hat state
+                if (isThisInstrument) {
+                    // REPLACE: It's currently a snare/hihat, and we are changing its state
                     newTokenText = noteStr + durationPart;
-                    // Preserve existing generic decorations if not provided in noteStr
+
+                    // Preserve generic decorations (like !f!) if they aren't in the new noteStr
                     if (existingDecorations && !noteStr.startsWith(existingDecorations)) {
-                        const cleanNoteStr = noteStr.replace(/^!.*?!/, '');
-                        if (noteStr.includes('!>!')) {
-                            newTokenText = existingDecorations + '!>!' + cleanNoteStr + durationPart;
+                        // Strip the specific decoration from the old string so we don't double up
+                        const cleanExisting = existingDecorations.replace(new RegExp(escapeRegExp(decorationToRemove), 'g'), '');
+
+                        // If noteStr has decorations (e.g. !>!), prepend the clean existing ones
+                        if (noteStr.match(/^!.*?!/)) {
+                            // noteStr already has !>!, just add existing generic ones before it
+                            newTokenText = cleanExisting + noteStr + durationPart;
                         } else {
-                            newTokenText = existingDecorations + cleanNoteStr + durationPart;
+                            newTokenText = cleanExisting + noteStr + durationPart;
                         }
                     }
                 } else {
-                    // Create chord with hi-hat + existing note
+                    // MERGE: It's a different instrument (e.g. Kick), create a chord
                     let combinedDecorations = existingDecorations;
+
+                    // Add new decorations if unique
                     if (newDecorations && !combinedDecorations.includes(newDecorations)) {
                         combinedDecorations += newDecorations;
                     }
+
+                    // Use new 'o' prefix if present, otherwise keep existing (if any)
                     const combinedOpen = newOpenPrefix || existingMatch?.[2] || '';
 
                     newTokenText = `${combinedDecorations}${combinedOpen}[${innerNote}${coreTokenNoDir}]${durationPart}`;
@@ -1589,7 +1629,7 @@ export class DrumGrid {
             }
         }
 
-        // Rebuild bar with beat grouping
+        // 5. Rebuild bar (Existing logic)
         let newBar = '';
         currentTick = 0;
 
@@ -1597,14 +1637,11 @@ export class DrumGrid {
             if (currentTick > 0 && currentTick % 4 === 0) {
                 newBar += ' ';
             }
-
             if (i === targetTokenIdx) {
                 newBar += newTokenText;
             } else {
-                // Reconstruct original token without extra spaces
                 newBar += tokens[i].text.trim();
             }
-
             currentTick += tokens[i].duration;
         }
 
