@@ -109,6 +109,7 @@ export class DrumGrid {
     private currentBarContext: { start: number, end: number } | null = null;
     private timeSignatureOpt = 16; // Granularity (16th notes)
     private contextMenu: HTMLElement | null = null;
+    private manuallyShownMidis: Set<number> = new Set();
 
     constructor(parent: HTMLElement, private editorViewGetter: () => EditorView | null) {
         this.container = parent.createDiv({ cls: 'abc-drum-grid-wrapper' });
@@ -213,54 +214,51 @@ export class DrumGrid {
     private updateVisibleInstruments() {
         if (this.percMaps.length === 0) return;
 
-        // Get notes from current bar
+        // 1. Find notes currently written in the text
         let usedNotes = this.extractNotesFromBar(this.currentBar);
 
-        // If current bar is empty or has no notes, check previous bar
+        // Check previous bar fallback if current is empty
         if (usedNotes.size === 0 && this.previousBarContent) {
             usedNotes = this.extractNotesFromBar(this.previousBarContent);
         }
 
-        // Find which percMaps are used
-        const usedMaps: PercMap[] = [];
+        // 2. Initialize visible list with maps found in text
+        const nextVisible: PercMap[] = [];
+
         for (const map of this.percMaps) {
             if (usedNotes.has(map.char)) {
-                usedMaps.push(map);
+                nextVisible.push(map);
             }
         }
 
-        let nextVisible: PercMap[] = [];
+        // 3. Merge in Manually Shown Instruments (from '+' button)
+        this.manuallyShownMidis.forEach(midi => {
+            if (!nextVisible.some(m => m.midi === midi)) {
+                const map = this.percMaps.find(m => m.midi === midi);
+                if (map) nextVisible.push(map);
+            }
+        });
 
-        if (usedMaps.length > 0) {
-            nextVisible = usedMaps;
-        } else {
-            // Fall back to first 3 instruments
-            nextVisible = this.percMaps.slice(0, this.maxVisible);
-        }
+        // 4. GENERIC GROUP ENFORCEMENT (Data-Driven)
+        // This replaces the hardcoded Hi-Hat and Snare blocks
+        for (const def of DRUM_DEFS) {
+            // Collect all midis for this group (Base + all Alts)
+            const groupMidis = [def.baseMidi, ...def.alts.map(a => a.midi)];
 
-        // --- ENFORCE HI-HAT PAIRING (42 & 46) ---
-        const hasClosed = nextVisible.some(m => m.midi === 42);
-        const hasOpen = nextVisible.some(m => m.midi === 46);
+            // Check if ANY instrument from this group is currently visible
+            const isGroupActive = nextVisible.some(m => groupMidis.includes(m.midi));
 
-        if (hasClosed && !hasOpen) {
-            const openMap = this.percMaps.find(m => m.midi === 46);
-            if (openMap) nextVisible.push(openMap);
-        } else if (!hasClosed && hasOpen) {
-            const closedMap = this.percMaps.find(m => m.midi === 42);
-            if (closedMap) nextVisible.push(closedMap);
-        }
-
-        // --- ENFORCE SNARE PAIRING (38 & 37) ---
-        // FIX: Add this block so Snare always pulls in Side Stick
-        const hasSnare = nextVisible.some(m => m.midi === 38);
-        const hasSideStick = nextVisible.some(m => m.midi === 37);
-
-        if (hasSnare && !hasSideStick) {
-            const sideStickMap = this.percMaps.find(m => m.midi === 37);
-            if (sideStickMap) nextVisible.push(sideStickMap);
-        } else if (!hasSnare && hasSideStick) {
-            const snareMap = this.percMaps.find(m => m.midi === 38);
-            if (snareMap) nextVisible.push(snareMap);
+            if (isGroupActive) {
+                // If the group is active, pull in ALL members of the group
+                // (provided they exist in the user's mapping)
+                groupMidis.forEach(midi => {
+                    const isAlreadyVisible = nextVisible.some(m => m.midi === midi);
+                    if (!isAlreadyVisible) {
+                        const map = this.percMaps.find(m => m.midi === midi);
+                        if (map) nextVisible.push(map);
+                    }
+                });
+            }
         }
 
         this.visibleMaps = nextVisible;
@@ -1220,48 +1218,68 @@ export class DrumGrid {
         header.style.marginBottom = '4px';
         menu.appendChild(header);
 
-        // --- CUSTOM LOGIC: Handle Hi-Hat grouping in menu ---
-        const closedHH = hiddenMaps.find(m => m.midi === 42);
-        const openHH = hiddenMaps.find(m => m.midi === 46);
         const processedMidis = new Set<number>();
 
-        // 1. If both Hi-Hats are hidden, create a single "Hi-Hat" entry
-        if (closedHH && openHH) {
-            const item = document.createElement('div');
-            item.className = 'abc-drum-context-menu-item';
-            item.style.padding = '6px 12px';
-            item.style.cursor = 'pointer';
-            item.style.display = 'flex';
-            item.style.alignItems = 'center';
-            item.style.fontSize = '12px';
-            item.style.color = 'var(--text-normal)';
+        // 1. DATA-DRIVEN GROUP LOGIC
+        // Iterate through all definitions (Hi-Hat, Snare, Toms, etc.)
+        for (const def of DRUM_DEFS) {
+            // Check if the BASE instrument of this group is in the hidden list
+            const baseMap = hiddenMaps.find(m => m.midi === def.baseMidi);
 
-            const labelSpan = document.createElement('span');
-            labelSpan.innerText = "Hi-Hat"; // Combined label
-            item.appendChild(labelSpan);
+            if (baseMap) {
+                // Find any ALT instruments for this group that are ALSO hidden
+                const hiddenAlts = def.alts
+                    .map(a => hiddenMaps.find(m => m.midi === a.midi))
+                    .filter((m): m is PercMap => !!m);
 
-            item.addEventListener('mouseenter', () => {
-                item.style.backgroundColor = 'var(--background-modifier-hover)';
-            });
-            item.addEventListener('mouseleave', () => {
-                item.style.backgroundColor = 'transparent';
-            });
+                const item = document.createElement('div');
+                item.className = 'abc-drum-context-menu-item';
+                item.style.padding = '6px 12px';
+                item.style.cursor = 'pointer';
+                item.style.display = 'flex';
+                item.style.alignItems = 'center';
+                item.style.fontSize = '12px';
+                item.style.color = 'var(--text-normal)';
 
-            item.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.closeContextMenu();
-                // Add BOTH to visible maps
-                this.visibleMaps.push(closedHH);
-                this.visibleMaps.push(openHH);
-                this.render();
-            });
+                const labelSpan = document.createElement('span');
+                // Use the Group Label from config (e.g. "Hi-Hat", "Snare")
+                labelSpan.innerText = def.label;
+                item.appendChild(labelSpan);
 
-            menu.appendChild(item);
-            processedMidis.add(42);
-            processedMidis.add(46);
+                item.addEventListener('mouseenter', () => {
+                    item.style.backgroundColor = 'var(--background-modifier-hover)';
+                });
+                item.addEventListener('mouseleave', () => {
+                    item.style.backgroundColor = 'transparent';
+                });
+
+                item.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.closeContextMenu();
+
+                    // Add Base
+                    this.visibleMaps.push(baseMap);
+                    this.manuallyShownMidis.add(baseMap.midi);
+
+                    // Add all found Alts automatically
+                    hiddenAlts.forEach(altMap => {
+                        this.visibleMaps.push(altMap);
+                        this.manuallyShownMidis.add(altMap.midi);
+                    });
+
+                    this.render();
+                });
+
+                menu.appendChild(item);
+
+                // Mark these as processed so they don't appear in the "Singles" list below
+                processedMidis.add(baseMap.midi);
+                hiddenAlts.forEach(m => processedMidis.add(m.midi));
+            }
         }
 
-        // 2. Add remaining hidden maps
+        // 2. REMAINING SINGLES LOGIC
+        // Any instrument not caught by the group definitions above
         hiddenMaps.forEach(map => {
             if (processedMidis.has(map.midi)) return;
 
@@ -1289,6 +1307,7 @@ export class DrumGrid {
                 e.stopPropagation();
                 this.closeContextMenu();
                 this.visibleMaps.push(map);
+                this.manuallyShownMidis.add(map.midi);
                 this.render();
             });
 
@@ -1298,6 +1317,7 @@ export class DrumGrid {
         document.body.appendChild(menu);
         this.contextMenu = menu;
 
+        // Position adjustment
         const rect = menu.getBoundingClientRect();
         if (rect.right > window.innerWidth) {
             menu.style.left = `${window.innerWidth - rect.width - 10}px`;
