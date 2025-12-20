@@ -1,5 +1,6 @@
 import { EditorView } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
+import { DRUM_DEFS, DrumGroupDefinition, DrumDecoration } from './drum_grid/drum_definitions';
 
 interface PercMap {
     label: string; // The note name or label (e.g. "Kick", "Snare") - derived or explicit? User just gives char and midi. 
@@ -14,14 +15,13 @@ type NoteState = 'base' | 'alt' | 'decoration' | 'flam' | null;
 
 interface GroupedInstrument {
     type: 'grouped';
+    def: DrumGroupDefinition; // Reference to the config
+
     label: string;
-    style: 'hihat' | 'snare'; // Determines the icons and specific decorations
 
-    baseChar: string;    // e.g. 'g' (Closed HH) or 'c' (Snare)
-    baseMidi: number;
-
-    altChar: string;     // e.g. '^g' (Open HH) or 'd' (Side Stick)
-    altMidi: number;
+    // Resolved actual characters from user's ABC
+    baseChar: string;
+    altChar: string;
 }
 
 
@@ -65,7 +65,7 @@ const GM_DRUMS: { [key: number]: string } = {
     48: "Hi-Mid Tom",
     49: "Crash 1",
     50: "High Tom",
-    51: "Ride 1",
+    51: "Ride",
     52: "China",
     53: "Ride Bell",
     54: "Tambourine",
@@ -73,7 +73,7 @@ const GM_DRUMS: { [key: number]: string } = {
     56: "Cowbell",
     57: "Crash 2",
     58: "Vibraslap",
-    59: "Ride 2",
+    59: "Ride Edge",
     60: "Hi Bongo",
     61: "Low Bongo",
     62: "Mute Hi Conga",
@@ -321,43 +321,50 @@ export class DrumGrid {
         const rows: InstrumentRow[] = [];
         const processed = new Set<string>();
 
-        // 1. Check for Hi-Hat Pair (42 & 46)
-        const closedHH = this.visibleMaps.find(m => m.midi === 42);
-        const openHH = this.visibleMaps.find(m => m.midi === 46);
+        // 1. Loop through our Definitions (Data-Driven)
+        for (const def of DRUM_DEFS) {
+            const baseMap = this.visibleMaps.find(m => m.midi === def.baseMidi);
 
-        if (closedHH && openHH) {
-            rows.push({
-                type: 'grouped',
-                label: 'Hi-Hat',
-                style: 'hihat',
-                baseChar: closedHH.char,
-                baseMidi: 42,
-                altChar: openHH.char,
-                altMidi: 46
-            });
-            processed.add(closedHH.char);
-            processed.add(openHH.char);
+            // For now, we look for the first matching Alt in the definition
+            // (The code supports 1 active alt, though config allows many)
+            let altMap: PercMap | undefined;
+            let activeAltDef = def.alts[0];
+
+            for (const altDef of def.alts) {
+                const found = this.visibleMaps.find(m => m.midi === altDef.midi);
+                if (found) {
+                    altMap = found;
+                    activeAltDef = altDef;
+                    break;
+                }
+            }
+
+            // We create a Grouped Row if:
+            // A) We have Base AND Alt (e.g. HiHat Closed + Open)
+            // B) We have Base AND the definition has NO Alts (e.g. Tom with just Flams/Ghosts)
+            const isCompletePair = baseMap && altMap;
+            const isSoloWithAdvancedFeatures = baseMap && def.alts.length === 0;
+
+            if (isCompletePair || isSoloWithAdvancedFeatures) {
+                // Determine chars. If no alt exists, use a unique placeholder that won't match any note
+                // so the parser doesn't get confused.
+                const resolvedBase = baseMap!.char;
+                const resolvedAlt = altMap ? altMap.char : "%%__NO_ALT__%%";
+
+                rows.push({
+                    type: 'grouped',
+                    def: def,
+                    label: def.label,
+                    baseChar: resolvedBase,
+                    altChar: resolvedAlt
+                });
+
+                processed.add(resolvedBase);
+                if (altMap) processed.add(resolvedAlt);
+            }
         }
 
-        // 2. Check for Snare Pair (38 & 37)
-        const snare = this.visibleMaps.find(m => m.midi === 38);
-        const sideStick = this.visibleMaps.find(m => m.midi === 37);
-
-        if (snare && sideStick) {
-            rows.push({
-                type: 'grouped',
-                label: 'Snare',
-                style: 'snare',
-                baseChar: snare.char,
-                baseMidi: 38,
-                altChar: sideStick.char,
-                altMidi: 37
-            });
-            processed.add(snare.char);
-            processed.add(sideStick.char);
-        }
-
-        // 3. Add remaining singles
+        // 2. Add remaining singles (Generic fallback)
         for (const map of this.visibleMaps) {
             if (!processed.has(map.char)) {
                 rows.push({
@@ -379,6 +386,12 @@ export class DrumGrid {
         const grid: NoteState[] = Array(16).fill(null);
         const tokenRegex = /((?:!.*?!)*(?:o)?(?:\{[^}]+\})?(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
 
+        const def = instrument.def;
+        // Pre-calculate what to look for
+        const decAbc = def.decorations[0]?.abc || 'NOT_FOUND';
+        const altDef = def.alts[0];
+        const altPrefix = altDef?.abcPrefix || null;
+
         let currentTick = 0;
         let match;
 
@@ -388,7 +401,7 @@ export class DrumGrid {
             const coreContent = match[1];
             const durationStr = match[2];
 
-            // ... (Duration parsing logic - same as before) ...
+            // ... (Duration parsing logic ...
             let duration = 1;
             if (durationStr === '/') duration = 0.5;
             else if (durationStr && !durationStr.includes('/')) duration = parseInt(durationStr);
@@ -397,16 +410,15 @@ export class DrumGrid {
 
             const tickIdx = Math.floor(currentTick);
 
-            // 1. Detect Flam (Presence of curly braces)
+            // 1. Detect Flam
             const isFlam = /\{[^}]+\}/.test(coreContent);
 
-            // 2. Detect Decorations
-            const isDecorated = instrument.style === 'hihat'
-                ? (coreContent.includes('!>!'))
-                : (coreContent.includes('!g!'));
+            // 2. Detect Decoration (Generic check against config)
+            const activeDecoration = def.decorations.find(d => coreContent.includes(d.abc));
+            const isDecorated = !!activeDecoration;
 
-            // 3. Detect "Alternate" State
-            const hasOpenPrefix = /^((?:!.*?!)*)o/.test(coreContent);
+            // 3. Detect Alt Prefix (e.g., 'o')
+            const hasAltPrefix = altPrefix ? new RegExp(`^((?:!.*?!)*)${altPrefix}`).test(coreContent) : false;
 
             // Clean content to check inner chars
             // Remove decorations, 'o', AND grace notes to find the main note
@@ -418,17 +430,17 @@ export class DrumGrid {
             const hasAltChar = innerContent.includes(instrument.altChar);
 
             if (hasBaseChar || hasAltChar) {
-                if (isFlam && instrument.style === 'snare') {
-                    grid[tickIdx] = 'flam'; // Priority to Flam for Snare
+                if (def.allowFlam && isFlam) {
+                    grid[tickIdx] = 'flam';
                 } else if (isDecorated) {
                     grid[tickIdx] = 'decoration';
-                } else if ((instrument.style === 'hihat' && hasOpenPrefix) || hasAltChar) {
+                } else if (hasAltPrefix || hasAltChar) {
+                    // Logic tweak: use config to decide if prefix matters
                     grid[tickIdx] = 'alt';
                 } else {
                     grid[tickIdx] = 'base';
                 }
             }
-
             currentTick += ticks;
         }
 
@@ -535,6 +547,32 @@ export class DrumGrid {
 
         this.currentBarContext = { start: absStart, end: absEnd };
         this.currentBar = content.substring(absStart, absEnd);
+    }
+
+    private getDecorationIconAtTick(barText: string, tickIndex: number, def: DrumGroupDefinition): string {
+        // Quick tokenizer to find the token at this tick
+        const tokenRegex = /((?:!.*?!)*(?:o)?(?:\{[^}]+\})?(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
+        let currentTick = 0;
+        let match;
+
+        while ((match = tokenRegex.exec(barText)) !== null) {
+            const coreContent = match[1];
+            // Duration logic
+            let duration = 1;
+            const durationStr = match[2];
+            if (durationStr === '/') duration = 0.5;
+            else if (durationStr && !durationStr.includes('/')) duration = parseInt(durationStr);
+            if (coreContent.startsWith('"')) duration = 0;
+            const ticks = (duration === 0 && coreContent.startsWith('"')) ? 0 : (Math.round(duration) || 1);
+
+            if (currentTick <= tickIndex && (currentTick + ticks) > tickIndex) {
+                // Found the token. Find which decoration matches.
+                const matched = def.decorations.find(d => coreContent.includes(d.abc));
+                return matched ? matched.icon : '?';
+            }
+            currentTick += ticks;
+        }
+        return '?';
     }
 
     private render() {
@@ -680,26 +718,40 @@ export class DrumGrid {
                             indicator.style.color = 'var(--background-primary)';
                             indicator.style.lineHeight = '1';
 
-                            if (instrumentRow.style === 'hihat') {
-                                if (state === 'alt') indicator.innerText = '○'; // Open
-                                if (state === 'decoration') indicator.innerText = '>'; // Accent
+                            // GENERIC VISUALS FROM CONFIG
+                            const def = instrumentRow.def;
+
+                            if (state === 'alt') {
+                                indicator.innerText = def.alts[0].icon; // e.g., '○' or 'x'
+                                if (def.alts[0].icon === 'x') indicator.style.fontSize = '12px';
                             }
-                            else if (instrumentRow.style === 'snare') {
-                                if (state === 'alt') {
-                                    indicator.innerText = 'x'; // Side Stick
-                                    // Optional: Make font slightly larger for x
-                                    indicator.style.fontSize = '12px';
-                                }
-                                if (state === 'decoration') {
-                                    indicator.innerText = '(•)'; // Ghost Note
-                                    indicator.style.fontSize = '8px'; // Smaller to fit
-                                }
-                                if (state === 'flam') {
-                                    indicator.innerText = '♪';
-                                    indicator.style.fontSize = '10px';
-                                    indicator.style.marginLeft = '-2px'; // Adjust centering
-                                }
+                            else if (state === 'decoration') {
+                                // FIX: We know it's a decoration, but which one?
+                                // We need to check the grid source or helper. 
+                                // Since parseBarToStateGrid only returned the enum, we do a quick check on the BAR text logic or 
+                                // simpler: we check which decoration matches the currently applied note in the text?
+                                // Actually, simpler: The parseBarToStateGrid logic determined it was a decoration.
+                                // But here we don't have the token text easily. 
+
+                                // OPTIMIZATION: To avoid re-parsing, let's look at the parsedNotes (which has the chars). 
+                                // But parsedNotes doesn't have decorations.
+
+                                // Reliable fallback: Re-extract decoration from the bar for this specific tick.
+                                // Or, simpler: We accept that render might need to peek at the bar again, 
+                                // but simpler is to update parseBarToStateGrid to return the OBJECT, not just string?
+                                // No, let's keep it consistent.
+
+                                // Let's use a helper method to find the icon:
+                                const icon = this.getDecorationIconAtTick(this.currentBar, globalStep, def);
+                                indicator.innerText = icon;
+                                if (icon.length > 1) indicator.style.fontSize = '8px';
                             }
+                            else if (state === 'flam') {
+                                indicator.innerText = '♪';
+                                indicator.style.fontSize = '10px';
+                                indicator.style.marginLeft = '-2px';
+                            }
+
                         }
 
                         // Click Handlers
@@ -1271,24 +1323,58 @@ export class DrumGrid {
         menu.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
         menu.style.minWidth = '120px';
 
-        const options: { label: string; state: NoteState; icon: string }[] = [];
+        const def = instrument.def;
 
-        if (instrument.style === 'hihat') {
-            options.push({ label: 'Closed', state: 'base', icon: '✕' });
-            options.push({ label: 'Open', state: 'alt', icon: '○' });
-            options.push({ label: 'Accent', state: 'decoration', icon: '>' });
-        } else if (instrument.style === 'snare') {
-            options.push({ label: 'Snare', state: 'base', icon: '●' });
-            options.push({ label: 'Side Stick', state: 'alt', icon: 'x' });
-            options.push({ label: 'Ghost', state: 'decoration', icon: '(•)' });
+        // Define a unified interface for our menu items
+        interface MenuOption {
+            label: string;
+            state: NoteState;
+            icon: string;
+            decoration?: DrumDecoration; // Optional property for decorations
+        }
+
+        const options: MenuOption[] = [];
+
+        // 1. Base Option
+        options.push({ label: def.label, state: 'base', icon: def.baseIcon });
+
+        // 2. Alt Option
+        if (def.alts.length > 0) {
+            const alt = def.alts[0];
+            options.push({
+                label: alt.label,
+                state: 'alt',
+                icon: alt.icon
+            });
+        }
+
+        // 3. Decorations (Add them to the list instead of rendering immediately)
+        def.decorations.forEach(dec => {
+            options.push({
+                label: dec.label,
+                state: 'decoration',
+                icon: dec.icon,
+                decoration: dec // Store the reference
+            });
+        });
+
+        // 4. Flam
+        if (def.allowFlam) {
             options.push({ label: 'Flam', state: 'flam', icon: '♪' });
         }
 
-        // Add "Remove" option if there's a note
+        // 5. Remove
         if (currentState) {
             options.push({ label: 'Remove', state: null, icon: '−' });
         }
 
+        // Check which specific decoration is active (for highlighting)
+        let activeDecorationIcon = '';
+        if (currentState === 'decoration') {
+            activeDecorationIcon = this.getDecorationIconAtTick(this.currentBar, tickIndex, def);
+        }
+
+        // --- SINGLE RENDERING LOOP ---
         options.forEach(opt => {
             const item = document.createElement('div');
             item.className = 'abc-drum-context-menu-item';
@@ -1300,8 +1386,21 @@ export class DrumGrid {
             item.style.fontSize = '12px';
             item.style.color = 'var(--text-normal)';
 
-            // Highlight current state
-            if (opt.state === currentState) {
+            // Highlight Logic
+            let isSelected = false;
+
+            if (opt.state === null) {
+                // Remove button never highlighted
+                isSelected = false;
+            } else if (opt.state === 'decoration') {
+                // Only highlight if it matches the specific active decoration icon
+                isSelected = (currentState === 'decoration' && opt.icon === activeDecorationIcon);
+            } else {
+                // Base, Alt, Flam
+                isSelected = (opt.state === currentState);
+            }
+
+            if (isSelected) {
                 item.style.backgroundColor = 'var(--background-modifier-hover)';
                 item.style.fontWeight = 'bold';
             }
@@ -1321,7 +1420,7 @@ export class DrumGrid {
                 item.style.backgroundColor = 'var(--background-modifier-hover)';
             });
             item.addEventListener('mouseleave', () => {
-                if (opt.state !== currentState) {
+                if (!isSelected) {
                     item.style.backgroundColor = 'transparent';
                 }
             });
@@ -1329,7 +1428,8 @@ export class DrumGrid {
             item.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.closeContextMenu();
-                this.toggleGroupedNote(tickIndex, instrument, opt.state);
+                // Pass the decoration if it exists
+                this.toggleGroupedNote(tickIndex, instrument, opt.state, opt.decoration);
             });
 
             menu.appendChild(item);
@@ -1338,7 +1438,6 @@ export class DrumGrid {
         document.body.appendChild(menu);
         this.contextMenu = menu;
 
-        // Adjust position if menu goes off screen
         const rect = menu.getBoundingClientRect();
         if (rect.right > window.innerWidth) {
             menu.style.left = `${window.innerWidth - rect.width - 10}px`;
@@ -1349,39 +1448,51 @@ export class DrumGrid {
     }
 
     // Toggle hi-hat note with specific state (closed/open/accent)
-    private toggleGroupedNote(tickIndex: number, instrument: GroupedInstrument, targetState: NoteState) {
+    private toggleGroupedNote(tickIndex: number, instrument: GroupedInstrument, targetState: NoteState, specificDecoration?: DrumDecoration) {
         if (!this.currentBarContext || this.currentBar === null) return;
 
         const stateGrid = this.parseBarToStateGrid(this.currentBar, instrument);
         const currentState = stateGrid[tickIndex];
 
-        if (targetState === currentState) targetState = null;
+        // Logic: If clicking same state...
+        // For decorations, we also check if it's the SAME decoration.
+        // If I click "Accent" and it's already "Accent", toggle off.
+        // If I click "Ghost" and it's "Accent", switch to "Ghost".
 
+        let shouldToggleOff = false;
+        if (targetState === currentState) {
+            if (targetState === 'decoration' && specificDecoration) {
+                // Check if the current token actually HAS this specific decoration
+                const currentIcon = this.getDecorationIconAtTick(this.currentBar, tickIndex, instrument.def);
+                if (currentIcon === specificDecoration.icon) {
+                    shouldToggleOff = true;
+                }
+            } else {
+                shouldToggleOff = true;
+            }
+        }
+
+        if (shouldToggleOff) targetState = null;
+
+
+        const def = instrument.def;
         let noteStr = '';
 
         if (targetState === 'base') {
-            // Closed HH or Normal Snare
             noteStr = instrument.baseChar;
         }
         else if (targetState === 'alt') {
-            // Open HH (o^g) or Side Stick (d)
-            if (instrument.style === 'hihat') {
-                noteStr = `o${instrument.altChar}`;
-            } else {
-                noteStr = instrument.altChar; // Side stick is just the note char, no prefix
-            }
+            const altDef = def.alts[0]; // Assuming first alt
+            const prefix = altDef.abcPrefix || '';
+            noteStr = `${prefix}${instrument.altChar}`;
         }
         else if (targetState === 'decoration') {
-            // Accent (!>!g) or Ghost (!g!c)
-            if (instrument.style === 'hihat') {
-                noteStr = `!>!${instrument.baseChar}`;
-            } else {
-                noteStr = `!g!${instrument.baseChar}`;
-            }
+            // Assuming first decoration (Accent or Ghost)
+            // If you have multiple decorations, NoteState needs to store which one
+            const dec = specificDecoration || def.decorations[0];
+            noteStr = `${dec.abc}${instrument.baseChar}`
         }
         else if (targetState === 'flam') {
-            // Flam syntax: {grace}main
-            // We assume the grace note is the base char (e.g. {c}c)
             noteStr = `{${instrument.baseChar}}${instrument.baseChar}`;
         }
 
@@ -1390,6 +1501,9 @@ export class DrumGrid {
 
     // Modify hi-hat note in the bar
     private modifyGroupedNoteInBar(tickIndex: number, instrument: GroupedInstrument, currentState: NoteState, targetState: NoteState, noteStr: string) {
+
+        const def = instrument.def;
+
         // 1. Parse tokens 
         const tokenRegex = /((?:!.*?!)*(?:o)?(?:\{[^}]+\})?(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
 
@@ -1432,7 +1546,7 @@ export class DrumGrid {
             });
         }
 
-        // 2. Find token at tick (Existing logic)
+        // 2. Find token at tick
         let currentTick = 0;
         let targetTokenIdx = -1;
 
@@ -1462,7 +1576,7 @@ export class DrumGrid {
             }
         };
 
-        // 3. Handle Append Mode (Existing logic)
+        // 3. Handle Append Mode
         if (targetTokenIdx === -1) {
             const gap = tickIndex - currentTick;
             if (gap < 0) return;
@@ -1489,15 +1603,10 @@ export class DrumGrid {
         const token = tokens[targetTokenIdx];
         let newTokenText = '';
 
-        // Get duration part
         const durMatch = token.text.match(/([\d\/]+)$/);
         const durationPart = durMatch ? durMatch[1] : '';
 
-        // --- NEW GENERIC LOGIC STARTS HERE ---
-
-        // Define what specific decoration we need to look for based on style
-        // HiHat uses !>!, Snare uses !g!
-        const decorationToRemove = instrument.style === 'hihat' ? '!>!' : '!g!';
+        // Helper
         const escapeRegExp = (string: string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
         if (targetState === null) {
@@ -1506,110 +1615,75 @@ export class DrumGrid {
             if (token.text.includes('[')) {
                 // Parse existing prefix and content
                 const prefixMatch = token.text.match(/^((?:!.*?!)*)(o)?(?:(\{.*?\})?)?(\[.*)/);
-
                 let decorations = prefixMatch?.[1] || '';
-                // const openPrefix = prefixMatch?.[2] || '';
-                // const gracePart = prefixMatch?.[3] || ''; // Ignore, we are deleting
                 const chordPart = prefixMatch?.[4] || token.text;
 
-                // Remove instrument specific decoration
-                decorations = decorations.replace(new RegExp(escapeRegExp(decorationToRemove), 'g'), '');
+                // FIX: Loop through ALL definitions and remove ANY that exist
+                def.decorations.forEach(dec => {
+                    decorations = decorations.replace(new RegExp(escapeRegExp(dec.abc), 'g'), '');
+                });
 
-                // Note: We automatically lose the Grace Note ({}) because we aren't rebuilding it here,
-                // and the "flam" state logic below (in Add/Change) handles putting it back if needed.
-                // Since we are deleting, losing the grace note attached to THIS instrument is correct.
-                // (Assuming the grace note belongs to this instrument).
+                const chordInner = prefixMatch?.[4].match(/\[([^\]]+)\]/)?.[1] || '';
+                const notes = chordInner.match(/[\^=_]*[A-Ga-g][,']*/g) || [];
 
-                let inner = chordPart.match(/\[([^\]]+)\]/)?.[1] || '';
+                // Filter out base/alt notes
+                const remaining = notes.filter(n =>
+                    !n.includes(instrument.baseChar) && !n.includes(instrument.altChar)
+                );
 
-                //Remove Base and Alt chars (generic)
-                const removePatterns = [
-                    instrument.baseChar,
-                    instrument.altChar
-                ];
-
-                for (const pat of removePatterns) {
-                    inner = inner.replace(new RegExp(escapeRegExp(pat), 'g'), '');
-                }
-
-                // Check what remains
-                const remainingNotes = inner.match(/[\^=_]*[A-Ga-g][,']*/g) || [];
-
-                // If remaining notes exist, we reconstruct. 
-                // IMPORTANT: If other instruments had a grace note (unlikely in drum map), 
-                // losing the {} prefix here might affect them. 
-                // But generally {c}[Kc] -> flam is on snare. If we remove snare, we remove flam.
-
-                if (remainingNotes.length === 0) {
+                if (remaining.length === 0) {
                     newTokenText = 'z' + durationPart;
-                } else if (remainingNotes.length === 1) {
-                    // Apply the CLEANED decorations to the single remaining note
-                    newTokenText = `${decorations}${remainingNotes[0]}${durationPart}`;
+                } else if (remaining.length === 1) {
+                    newTokenText = `${decorations}${remaining[0]}${durationPart}`;
                 } else {
-                    // Apply the CLEANED decorations to the remaining chord
-                    newTokenText = `${decorations}[${remainingNotes.join('')}]${durationPart}`;
+                    newTokenText = `${decorations}[${remaining.join('')}]${durationPart}`;
                 }
             } else {
-                // Single note - just replace with rest
                 newTokenText = 'z' + durationPart;
             }
         } else {
             // == ADD / CHANGE CASE ==
-
-            // noteStr comes from toggleGroupedNote (e.g., "!g!c" or "o^g")
 
             // Extract modifiers from the REQUESTED noteStr
             const noteMatch = noteStr.match(/^((?:!.*?!)*)(o)?(?:(\{.*?\})?)?(.*)$/);
 
             const newDecorations = noteMatch?.[1] || '';
             const newOpenPrefix = noteMatch?.[2] || '';
-            const newGrace = noteMatch?.[3] || ''; // Capture {c}
+            const newGrace = noteMatch?.[3] || '';
             const innerNote = noteMatch?.[4] || noteStr;
 
             if (token.text.includes('[')) {
                 // -- CHORD LOGIC --
 
-                // Regex to capture existing parts
                 const existingPrefixMatch = token.text.match(/^((?:!.*?!)*)(o)?(?:(\{.*?\})?)?(\[.*)/);
                 let existingDecorations = existingPrefixMatch?.[1] || '';
-                // const existingOpen = existingPrefixMatch?.[2] || '';
-                // const existingGrace = existingPrefixMatch?.[3] || ''; // Discard old grace
                 const chordPart = existingPrefixMatch?.[4] || token.text;
+                const chordInner = chordPart.match(/\[([^\]]+)\]/)?.[1] || '';
 
-                let inner = chordPart.match(/\[([^\]]+)\]/)?.[1] || '';
+                const notes = chordInner.match(/[\^=_]*[A-Ga-g][,']*/g) || [];
 
-                // 1. Remove any existing versions of this instrument (Base or Alt)
-                const removePatterns = [
-                    instrument.baseChar,
-                    instrument.altChar
-                ];
+                // Filter out OLD instrument notes
+                const filtered = notes.filter(n =>
+                    !n.includes(instrument.baseChar) && !n.includes(instrument.altChar)
+                );
 
-                for (const pat of removePatterns) {
-                    inner = inner.replace(new RegExp(escapeRegExp(pat), 'g'), '');
-                }
+                // Add NEW note
+                const newInner = filtered.join('') + innerNote;
 
-                // 2. Add new note content
-                inner = inner + innerNote;
+                // Cleanup decorations
+                def.decorations.forEach(dec => {
+                    existingDecorations = existingDecorations.replace(new RegExp(escapeRegExp(dec.abc), 'g'), '');
+                });
 
-                // 3. Clean up OLD specific decorations (remove !>! or !g! from the existing set)
-                // This ensures if we switch from Ghost (!g!) to Normal, !g! is gone.
-                existingDecorations = existingDecorations.replace(new RegExp(escapeRegExp(decorationToRemove), 'g'), '');
-
-                // 4. Combine decorations
                 let combinedDecorations = existingDecorations;
                 if (newDecorations && !combinedDecorations.includes(newDecorations)) {
                     combinedDecorations += newDecorations;
                 }
 
-                // 5. Determine 'o' prefix
-                // If the new note is Open HiHat, it brings 'o'. If it's Snare or Closed HH, 'newOpenPrefix' is empty.
-                // We discard the old 'o' because the state of this instrument dictates it.
                 const combinedOpen = newOpenPrefix || '';
-
                 const combinedGrace = newGrace || '';
 
-                // Build token
-                newTokenText = `${combinedDecorations}${combinedOpen}[${inner}]${durationPart}`;
+                newTokenText = `${combinedDecorations}${combinedOpen}${combinedGrace}[${newInner}]${durationPart}`;
 
             } else if (token.text.match(/^z/i)) {
                 // -- REST LOGIC --
@@ -1618,13 +1692,10 @@ export class DrumGrid {
             } else {
                 // -- SINGLE NOTE LOGIC --
 
-                // Existing single note... check if it IS this instrument or another one
                 const existingMatch = token.text.match(/^((?:!.*?!)*)(o)?(?:(\{.*?\})?)?(.*)$/);
                 const existingDecorations = existingMatch?.[1] || '';
-                // const existingGrace = existingMatch?.[3] || '';
                 const coreToken = existingMatch?.[4] || token.text;
                 const coreTokenNoDir = coreToken.replace(/[\d\/]+$/, '');
-
 
                 const isThisInstrument = coreTokenNoDir.includes(instrument.baseChar) ||
                     coreTokenNoDir.includes(instrument.altChar);
@@ -1633,14 +1704,15 @@ export class DrumGrid {
                     // REPLACE: It's currently a snare/hihat, and we are changing its state
                     newTokenText = noteStr + durationPart;
 
-                    // Preserve generic decorations (like !f!) if they aren't in the new noteStr
                     if (existingDecorations && !noteStr.startsWith(existingDecorations)) {
-                        // Strip the specific decoration from the old string so we don't double up
-                        const cleanExisting = existingDecorations.replace(new RegExp(escapeRegExp(decorationToRemove), 'g'), '');
+                        // FIX: Strip ALL specific decorations from the old string so we don't double up
+                        let cleanExisting = existingDecorations;
+                        def.decorations.forEach(dec => {
+                            cleanExisting = cleanExisting.replace(new RegExp(escapeRegExp(dec.abc), 'g'), '');
+                        });
 
                         // If noteStr has decorations (e.g. !>!), prepend the clean existing ones
                         if (noteStr.match(/^!.*?!/)) {
-                            // noteStr already has !>!, just add existing generic ones before it
                             newTokenText = cleanExisting + noteStr + durationPart;
                         } else {
                             newTokenText = cleanExisting + noteStr + durationPart;
@@ -1652,8 +1724,6 @@ export class DrumGrid {
                     if (newDecorations && !combinedDecorations.includes(newDecorations)) combinedDecorations += newDecorations;
 
                     const combinedOpen = newOpenPrefix || existingMatch?.[2] || '';
-
-                    // Priority to NEW grace note (flam)
                     const combinedGrace = newGrace || existingMatch?.[3] || '';
 
                     newTokenText = `${combinedDecorations}${combinedOpen}${combinedGrace}[${innerNote}${coreTokenNoDir}]${durationPart}`;
@@ -1661,7 +1731,7 @@ export class DrumGrid {
             }
         }
 
-        // 5. Rebuild bar (Existing logic)
+        // 5. Rebuild bar
         let newBar = '';
         currentTick = 0;
 
