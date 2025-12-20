@@ -1390,7 +1390,7 @@ export class DrumGrid {
 
     // Modify hi-hat note in the bar
     private modifyGroupedNoteInBar(tickIndex: number, instrument: GroupedInstrument, currentState: NoteState, targetState: NoteState, noteStr: string) {
-        // 1. Parse tokens (Existing logic - kept exactly as is)
+        // 1. Parse tokens 
         const tokenRegex = /((?:!.*?!)*(?:o)?(?:\{[^}]+\})?(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
 
         interface ExtToken {
@@ -1559,7 +1559,8 @@ export class DrumGrid {
             // noteStr comes from toggleGroupedNote (e.g., "!g!c" or "o^g")
 
             // Extract modifiers from the REQUESTED noteStr
-            const noteMatch = noteStr.match(/^((?:!.*?!)*)(o)?(.*)$/);
+            const noteMatch = noteStr.match(/^((?:!.*?!)*)(o)?(?:(\{.*?\})?)?(.*)$/);
+
             const newDecorations = noteMatch?.[1] || '';
             const newOpenPrefix = noteMatch?.[2] || '';
             const newGrace = noteMatch?.[3] || ''; // Capture {c}
