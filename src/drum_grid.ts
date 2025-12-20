@@ -223,25 +223,29 @@ export class DrumGrid {
             }
         }
 
+        let nextVisible: PercMap[] = [];
+
         if (usedMaps.length > 0) {
-            // Ensure Hi-Hat pairs are kept together (42 and 46)
-            const hasClosed = usedMaps.some(m => m.midi === 42);
-            const hasOpen = usedMaps.some(m => m.midi === 46);
-
-            if (hasClosed && !hasOpen) {
-                const openMap = this.percMaps.find(m => m.midi === 46);
-                if (openMap) usedMaps.push(openMap);
-            } else if (!hasClosed && hasOpen) {
-                const closedMap = this.percMaps.find(m => m.midi === 42);
-                if (closedMap) usedMaps.push(closedMap);
-            }
-
-            // Use the instruments found in the bar(s)
-            this.visibleMaps = usedMaps;
+            nextVisible = usedMaps;
         } else {
             // Fall back to first 3 instruments (default behavior for new/empty bars)
-            this.visibleMaps = this.percMaps.slice(0, this.maxVisible);
+            nextVisible = this.percMaps.slice(0, this.maxVisible);
         }
+
+        // --- ENFORCE HI-HAT PAIRING (42 & 46) ---
+        // This runs regardless of whether we used notes or fallback
+        const hasClosed = nextVisible.some(m => m.midi === 42);
+        const hasOpen = nextVisible.some(m => m.midi === 46);
+
+        if (hasClosed && !hasOpen) {
+            const openMap = this.percMaps.find(m => m.midi === 46);
+            if (openMap) nextVisible.push(openMap);
+        } else if (!hasClosed && hasOpen) {
+            const closedMap = this.percMaps.find(m => m.midi === 42);
+            if (closedMap) nextVisible.push(closedMap);
+        }
+
+        this.visibleMaps = nextVisible;
     }
 
     // Find the previous bar content
@@ -1101,10 +1105,9 @@ export class DrumGrid {
         menu.style.zIndex = '1000';
         menu.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
         menu.style.minWidth = '150px';
-        menu.style.maxHeight = '300px'; // Add scroll if list is long
+        menu.style.maxHeight = '300px';
         menu.style.overflowY = 'auto';
 
-        // Header for the menu (Optional)
         const header = document.createElement('div');
         header.innerText = "Add Instrument";
         header.style.padding = '4px 12px';
@@ -1114,7 +1117,13 @@ export class DrumGrid {
         header.style.marginBottom = '4px';
         menu.appendChild(header);
 
-        hiddenMaps.forEach(map => {
+        // --- CUSTOM LOGIC: Handle Hi-Hat grouping in menu ---
+        const closedHH = hiddenMaps.find(m => m.midi === 42);
+        const openHH = hiddenMaps.find(m => m.midi === 46);
+        const processedMidis = new Set<number>();
+
+        // 1. If both Hi-Hats are hidden, create a single "Hi-Hat" entry
+        if (closedHH && openHH) {
             const item = document.createElement('div');
             item.className = 'abc-drum-context-menu-item';
             item.style.padding = '6px 12px';
@@ -1124,12 +1133,10 @@ export class DrumGrid {
             item.style.fontSize = '12px';
             item.style.color = 'var(--text-normal)';
 
-            // Label
             const labelSpan = document.createElement('span');
-            labelSpan.innerText = map.label;
+            labelSpan.innerText = "Hi-Hat"; // Combined label
             item.appendChild(labelSpan);
 
-            // Hover effect
             item.addEventListener('mouseenter', () => {
                 item.style.backgroundColor = 'var(--background-modifier-hover)';
             });
@@ -1137,15 +1144,48 @@ export class DrumGrid {
                 item.style.backgroundColor = 'transparent';
             });
 
-            // Click action
             item.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.closeContextMenu();
+                // Add BOTH to visible maps
+                this.visibleMaps.push(closedHH);
+                this.visibleMaps.push(openHH);
+                this.render();
+            });
 
-                // Add the selected map to visible list
+            menu.appendChild(item);
+            processedMidis.add(42);
+            processedMidis.add(46);
+        }
+
+        // 2. Add remaining hidden maps
+        hiddenMaps.forEach(map => {
+            if (processedMidis.has(map.midi)) return;
+
+            const item = document.createElement('div');
+            item.className = 'abc-drum-context-menu-item';
+            item.style.padding = '6px 12px';
+            item.style.cursor = 'pointer';
+            item.style.display = 'flex';
+            item.style.alignItems = 'center';
+            item.style.fontSize = '12px';
+            item.style.color = 'var(--text-normal)';
+
+            const labelSpan = document.createElement('span');
+            labelSpan.innerText = map.label;
+            item.appendChild(labelSpan);
+
+            item.addEventListener('mouseenter', () => {
+                item.style.backgroundColor = 'var(--background-modifier-hover)';
+            });
+            item.addEventListener('mouseleave', () => {
+                item.style.backgroundColor = 'transparent';
+            });
+
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.closeContextMenu();
                 this.visibleMaps.push(map);
-
-                // Re-render the grid to show the new row
                 this.render();
             });
 
@@ -1155,7 +1195,6 @@ export class DrumGrid {
         document.body.appendChild(menu);
         this.contextMenu = menu;
 
-        // Adjust position if menu goes off screen
         const rect = menu.getBoundingClientRect();
         if (rect.right > window.innerWidth) {
             menu.style.left = `${window.innerWidth - rect.width - 10}px`;
