@@ -459,7 +459,7 @@ export class DrumGrid {
 
             // Clean content to check inner chars
             // Remove decorations, 'o', AND grace notes to find the main note
-            let innerContent = coreContent.replace(/^((?:!.*?!)*)(o)?(?:\{[^}]+\})?/, '');
+            let innerContent = coreContent.replace(/^((?:!.*?!)*)(?:\{[^}]+\})?/, '');
 
             if (innerContent.startsWith('[')) innerContent = innerContent.slice(1, -1);
 
@@ -588,7 +588,7 @@ export class DrumGrid {
 
     private getDecorationIconAtTick(barText: string, tickIndex: number, def: DrumGroupDefinition): string {
         // Quick tokenizer to find the token at this tick
-        const tokenRegex = /((?:!.*?!)*(?:o)?(?:\{[^}]+\})?(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
+        const tokenRegex = /((?:!.*?!)*(?:\{[^}]+\})?(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
         let currentTick = 0;
         let match;
 
@@ -1040,7 +1040,7 @@ export class DrumGrid {
             // Extract Notes (the base note characters, stripping modifiers like o, !...!)
             if (!coreContent.toLowerCase().startsWith('z') && !coreContent.toLowerCase().startsWith('x') && !coreContent.startsWith('"')) {
                 let cleanContent = coreContent.replace(/!.*?!/g, ''); // Strip decorations
-                let inner = cleanContent.replace(/^o/, ''); // Strip 'o' prefix
+                let inner = cleanContent;
                 inner = inner.replace(/[\[\]]/g, ""); // Remove brackets
 
                 // New Pattern: Just looks for pitch (e.g., ^g, G,)
@@ -1207,10 +1207,9 @@ export class DrumGrid {
         const coreText = targetToken.text.replace(/([\d\/]+)$/, '');
 
         // Extract prefixes that are outside the chord (for preserving on collapse)
-        const prefixMatch = coreText.match(/^((?:!.*?!)*)(o)?(.*)$/);
+        const prefixMatch = coreText.match(/^((?:!.*?!)*)(.*)$/);
         const decorations = prefixMatch?.[1] || '';
-        const openPrefix = prefixMatch?.[2] || '';
-        const afterPrefix = prefixMatch?.[3] || coreText;
+        const afterPrefix = prefixMatch?.[2] || coreText;
 
         let newTokenText = '';
 
@@ -1236,18 +1235,7 @@ export class DrumGrid {
                     // We need to check if the remaining note is a hi-hat that should keep the 'o'
                     const remainingNote = remainingNotes[0];
 
-                    // Check if remaining note is an "open-able" or "alt" instrument
-                    let shouldKeepOpen = false;
-                    for (const row of this.visibleRows) {
-                        if (row.type === 'grouped' && remainingNote.includes(row.altChar)) {
-                            shouldKeepOpen = true;
-                            break;
-                        }
-                    }
-
-                    if (shouldKeepOpen && openPrefix) {
-                        newTokenText = `${decorations}${openPrefix}${remainingNote}${durationPart}`;
-                    } else if (decorations) {
+                    if (decorations) {
                         // Decorations can apply to any note
                         newTokenText = `${decorations}${remainingNote}${durationPart}`;
                     } else {
@@ -1255,7 +1243,7 @@ export class DrumGrid {
                     }
                 } else {
                     // Still a chord - keep prefixes outside
-                    newTokenText = `${decorations}${openPrefix}[${remainingNotes.join('')}]${durationPart}`;
+                    newTokenText = `${decorations}[${remainingNotes.join('')}]${durationPart}`;
                 }
             } else {
                 // Single note being removed - replace with rest
@@ -1618,9 +1606,9 @@ export class DrumGrid {
             noteStr = instrument.baseChar;
         }
         else if (targetState === 'alt') {
-            const altDef = def.alts[0]; // Assuming first alt
-            const prefix = altDef.abcPrefix || '';
-            noteStr = `${prefix}${instrument.altChar}`;
+            // const altDef = def.alts[0]; // Assuming first alt;
+            noteStr = instrument.altChar;
+
         }
         else if (targetState === 'decoration') {
             // Assuming first decoration (Accent or Ghost)
