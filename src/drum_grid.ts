@@ -989,13 +989,11 @@ export class DrumGrid {
         // 3. Rests: z|Z ...
 
         // IMPORTANT: In drum notation:
-        // - 'o' before a note = open modifier e.g., "o^g" = open hi-hat
-        // - Prefixes (!>!, o) can be OUTSIDE chords: !>![gF], o[gF]
+        // - Prefixes (!>!, !g!) can be OUTSIDE chords: !>![gF], !g![gF]
         // - These should NOT be treated as separate notes!
 
         // Revised Regex to handle drum modifiers and prefixes outside chords:
         // - (?:!>!)? - optional accent decoration (can be outside chord)
-        // - (?:o)? - optional 'o' prefix (open modifier, can be outside chord)
         // - Then either:
         //   - \[[^\]]+\] - a chord
         //   - OR a single note with modifiers
@@ -1004,10 +1002,9 @@ export class DrumGrid {
         // Group 2: Duration
         // Revised Regex to handle generic decorations and modifiers, AND quoted strings:
         // - (?:!.*?!)* - any number of decorations (allows generic like !f!, !trill!)
-        // - (?:o)? - optional 'o' prefix
         // - "[^"]*" - quoted strings (annotations) - consume but ignore
         // - Then either chord or single note
-        const tokenRegex = /((?:!.*?!)*(?:o)?(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
+        const tokenRegex = /((?:!.*?!)*(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
 
         let match;
         while ((match = tokenRegex.exec(barText)) !== null) {
