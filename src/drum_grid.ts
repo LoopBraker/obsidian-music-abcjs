@@ -110,6 +110,8 @@ export class DrumGrid {
     private timeSignatureOpt = 16; // Granularity (16th notes)
     private contextMenu: HTMLElement | null = null;
     private manuallyShownMidis: Set<number> = new Set();
+    private isLocked: boolean = false; //
+    private fullContent: string = "";  // <--- Store full content for global scanning
 
     constructor(parent: HTMLElement, private editorViewGetter: () => EditorView | null) {
         this.container = parent.createDiv({ cls: 'abc-drum-grid-wrapper' });
@@ -152,6 +154,7 @@ export class DrumGrid {
     private previousBarContent: string = "";
 
     update(content: string, cursor: number) {
+        this.fullContent = content;
         // 1. Parse %%percmap directives only if content changed
         if (content !== this.lastContent) {
             this.parsePercMaps(content);
@@ -181,6 +184,34 @@ export class DrumGrid {
         cleanBar = cleanBar.replace(/\[%%.*?\]/g, '');     // Remove inline directives
         cleanBar = cleanBar.replace(/%%.*/g, '');          // Remove comments
         return cleanBar;
+    }
+
+    private extractNotesFromEntireTune(): Set<string> {
+        const allNotes = new Set<string>();
+        const lines = this.fullContent.split('\n');
+
+        for (let line of lines) {
+            const trimmed = line.trim();
+
+            // Skip empty lines
+            if (!trimmed) continue;
+
+            // Skip Comments (%) and Directives (%%)
+            if (trimmed.startsWith('%')) continue;
+
+            // Skip Header Fields (Letter + Colon, e.g., "M:4/4", "K:perc", "V:1")
+            // Regex checks for Start of line, Letter, Colon.
+            if (/^[A-Za-z]:/.test(trimmed)) continue;
+
+            // Skip Lyrics (w:) - covered by the header check above (w is a field)
+
+            // If we are here, it's likely a music line.
+            // Use existing extraction logic on this line
+            const notesInLine = this.extractNotesFromBar(trimmed);
+            notesInLine.forEach(n => allNotes.add(n));
+        }
+
+        return allNotes;
     }
 
     // Extract unique note characters from a bar
@@ -215,12 +246,20 @@ export class DrumGrid {
         if (this.percMaps.length === 0) return;
 
         // 1. Find notes currently written in the text
-        let usedNotes = this.extractNotesFromBar(this.currentBar);
+        let usedNotes: Set<string>;
 
-        // Check previous bar fallback if current is empty
-        if (usedNotes.size === 0 && this.previousBarContent) {
-            usedNotes = this.extractNotesFromBar(this.previousBarContent);
+        // --- CHECK LOCK STATUS ---
+        if (this.isLocked) {
+            // If locked, scan the WHOLE file
+            usedNotes = this.extractNotesFromEntireTune();
+        } else {
+            // If unlocked, use current bar (Standard behavior)
+            usedNotes = this.extractNotesFromBar(this.currentBar);
+            if (usedNotes.size === 0 && this.previousBarContent) {
+                usedNotes = this.extractNotesFromBar(this.previousBarContent);
+            }
         }
+
 
         // 2. Initialize visible list with maps found in text
         const nextVisible: PercMap[] = [];
@@ -589,8 +628,85 @@ export class DrumGrid {
         // --- Render Header Row (1 e & a ...) grouped in boxes ---
         const headerRow = this.gridContainer.createDiv({ cls: 'abc-drum-row abc-drum-header' });
         headerRow.style.display = 'flex';
-        headerRow.style.marginLeft = `${labelWidth + 10}px`;
+        // headerRow.style.marginLeft = `${labelWidth + 10}px`;
         headerRow.style.gap = `${beatGroupGap}px`;
+
+        // 1. CREATE SLIDING TOGGLE SWITCH
+        const lockContainer = headerRow.createDiv({ cls: 'abc-drum-lock-container' });
+        lockContainer.style.width = `${labelWidth}px`;
+        lockContainer.style.marginRight = '10px';
+        lockContainer.style.display = 'flex';
+        lockContainer.style.justifyContent = 'center'; // Center the toggle in the column
+        lockContainer.style.alignItems = 'center';
+
+        // -- Toggle Track (The pill shape) --
+        const toggleTrack = lockContainer.createDiv({ cls: 'abc-drum-toggle-track' });
+        toggleTrack.style.position = 'relative';
+        toggleTrack.style.width = '50px';
+        toggleTrack.style.height = '22px';
+        toggleTrack.style.borderRadius = '11px'; // Pill shape
+        toggleTrack.style.cursor = 'pointer';
+        toggleTrack.style.transition = 'all 0.2s ease';
+        toggleTrack.style.display = 'flex';
+        toggleTrack.style.alignItems = 'center';
+        toggleTrack.style.justifyContent = 'space-between';
+        toggleTrack.style.padding = '0 6px';
+        toggleTrack.style.boxSizing = 'border-box';
+
+        // -- Dynamic Styles based on State --
+        if (this.isLocked) {
+            // Locked State (Purple/Accent)
+            toggleTrack.style.backgroundColor = 'transparent';
+            toggleTrack.style.border = '2px solid var(--text-accent)';
+        } else {
+            // Unlocked State (Grey/Faint)
+            toggleTrack.style.backgroundColor = 'transparent';
+            toggleTrack.style.border = '2px solid var(--background-modifier-border)';
+        }
+
+        // -- Closed Lock Icon (Visible on Left when Locked) --
+        const iconLocked = toggleTrack.createDiv();
+        iconLocked.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>`;
+        iconLocked.style.color = this.isLocked ? 'var(--text-accent)' : 'transparent';
+        iconLocked.style.display = 'flex';
+        iconLocked.style.opacity = this.isLocked ? '1' : '0';
+        iconLocked.style.transition = 'opacity 0.2s ease';
+
+        // -- Open Lock Icon (Visible on Right when Unlocked) --
+        const iconUnlocked = toggleTrack.createDiv();
+        iconUnlocked.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>`;
+        iconUnlocked.style.color = 'var(--text-muted)';
+        iconUnlocked.style.display = 'flex';
+        iconUnlocked.style.opacity = this.isLocked ? '0' : '1';
+        iconUnlocked.style.transition = 'opacity 0.2s ease';
+
+        // -- The Knob (The moving square/circle) --
+        const knob = toggleTrack.createDiv({ cls: 'abc-drum-toggle-knob' });
+        knob.style.position = 'absolute';
+        knob.style.top = '2px';
+        knob.style.width = '14px';
+        knob.style.height = '14px';
+        knob.style.borderRadius = '50%'; // Rounded square like image
+        knob.style.transition = 'all 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)';
+        knob.style.boxShadow = '0 1px 2px rgba(0,0,0,0.1)';
+
+        // Knob Position & Color Logic
+        if (this.isLocked) {
+            knob.style.left = '30px'; // Move Right
+            knob.style.backgroundColor = 'var(--text-accent)';
+        } else {
+            knob.style.left = '3px'; // Move Left
+            knob.style.backgroundColor = 'var(--text-muted)';
+            knob.style.opacity = '0.5';
+        }
+
+        // -- Click Event --
+        toggleTrack.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.isLocked = !this.isLocked;
+            this.updateVisibleInstruments(); // Recalculate visibility
+            this.render(); // Re-render to animate
+        });
 
         // 4 beat groups
         const beatLabels = [['1', 'e', '&', 'a'], ['2', 'e', '&', 'a'], ['3', 'e', '&', 'a'], ['4', 'e', '&', 'a']];
