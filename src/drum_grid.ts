@@ -623,13 +623,16 @@ export class DrumGrid {
         const cellWidth = 28;
         const cellHeight = 32;
         const labelWidth = 90;
-        const beatGroupGap = 8; // Gap between beat groups
+        const beatGroupGap = 2; // Gap between beat groups
 
         // --- Render Header Row (1 e & a ...) grouped in boxes ---
         const headerRow = this.gridContainer.createDiv({ cls: 'abc-drum-row abc-drum-header' });
         headerRow.style.display = 'flex';
         // headerRow.style.marginLeft = `${labelWidth + 10}px`;
-        headerRow.style.gap = `${beatGroupGap}px`;
+        // headerRow.style.gap = `${beatGroupGap}px`;
+        headerRow.style.alignItems = 'center';
+
+
 
         // 1. CREATE SLIDING TOGGLE SWITCH
         const lockContainer = headerRow.createDiv({ cls: 'abc-drum-lock-container' });
@@ -638,6 +641,7 @@ export class DrumGrid {
         lockContainer.style.display = 'flex';
         lockContainer.style.justifyContent = 'center'; // Center the toggle in the column
         lockContainer.style.alignItems = 'center';
+        lockContainer.style.flexShrink = '0';
 
         // -- Toggle Track (The pill shape) --
         const toggleTrack = lockContainer.createDiv({ cls: 'abc-drum-toggle-track' });
@@ -707,6 +711,11 @@ export class DrumGrid {
             this.updateVisibleInstruments(); // Recalculate visibility
             this.render(); // Re-render to animate
         });
+
+        // This mimics the 'abc-drum-grid-area' structure used in instrument rows.
+        const headerGridArea = headerRow.createDiv({ cls: 'abc-drum-header-grid-area' });
+        headerGridArea.style.display = 'flex';
+        headerGridArea.style.gap = `${beatGroupGap}px`; // Apply the gap HERE, not on the parent
 
         // 4 beat groups
         const beatLabels = [['1', 'e', '&', 'a'], ['2', 'e', '&', 'a'], ['3', 'e', '&', 'a'], ['4', 'e', '&', 'a']];
