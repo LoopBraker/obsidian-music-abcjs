@@ -1,34 +1,28 @@
-// Token structure used for duration optimization (matches drum_grid.ts)
-interface OptimizableToken {
-    tickPosition: number;
-    notes: string[];
-    duration: number;
-    decorations: string;
-    graceNote: string;
-    openPrefix: string;
-}
+
+import { OptimizableToken } from './drum_types';
 
 export class DurationManager {
-    private ticksPerL: number = 4; // Default for L:1/8 (now 4 ticks per 1/8 note instead of 2)
+    public readonly ticksPerBar = 96; // 24 ticks per beat * 4 beats
+    public readonly ticksPerBeat = 24;
+    private ticksPerL: number = 12; // Default for L:1/8 (96/8 = 12 ticks)
 
     updateHeaderConfig(content: string) {
         const match = content.match(/^L:\s*(1\/\d+|1)/m);
         const lValue = match ? match[1] : "1/8";
 
-        // We want base resolution to be 1/32 note = 1 tick
-        // So 1/8 note = 4 ticks
+        // We want base resolution to be 96 ticks per bar (4/4)
+        // L:1/1 = 96 ticks
+        // L:1/4 = 24 ticks
+        // L:1/8 = 12 ticks
+        // L:1/16 = 6 ticks
+        // L:1/32 = 3 ticks
+
         if (lValue === "1") {
-            this.ticksPerL = 32;
+            this.ticksPerL = 96;
         } else {
             const parts = lValue.split('/');
             const den = parseInt(parts[1]) || 1;
-            // 32 ticks per bar (assuming 4/4) -> 1/8 is 4 ticks.
-            // Formula: (32 / den) * (den of L value relative to whole note)
-            // Simpler: 1/8 = 4 ticks.
-            // 1/1 = 32 ticks
-            // 1/4 = 8 ticks
-            // 1/16 = 2 ticks
-            this.ticksPerL = 32 / den;
+            this.ticksPerL = 96 / den;
         }
     }
 
@@ -43,25 +37,26 @@ export class DurationManager {
         return parseInt(abcDurationStr) * this.ticksPerL;
     }
 
-    // Converts grid ticks (1, 2, 4 etc) to ABC string suffix
+    // Converts grid ticks to ABC string suffix
+    // ticks is absolute number of ticks (e.g. 12 for 1/8 note)
     ticksToAbcSuffix(ticks: number): string {
         const ratio = ticks / this.ticksPerL;
-        if (ratio === 1) return "";
-        if (ratio === 0.5) return "/2"; // Standardized
-        if (ratio === 0.25) return "/4";
-        if (ratio === 0.125) return "/8";
-        if (Number.isInteger(ratio)) return ratio.toString();
 
-        // Handle cases like 3 ticks in L:1/4 -> 0.75 -> 3/4
+        if (ratio === 1) return "";
+        if (ratio === 0.5) return "/2";
+        if (ratio === 0.25) return "/4";
+        if (ratio === 2) return "2";
+
+        // Fraction handling
         return this.toFraction(ratio);
     }
 
     private toFraction(amount: number): string {
         if (amount === 0.75) return "3/4";
-        if (amount === 1.5) return "3/2";
-        // General fraction handling for other cases
+        if (amount === 1.5) return "3/2"; // dotted
         const tolerance = 0.0001;
-        for (const den of [2, 4, 8, 16, 32]) {
+        // Check common denominators
+        for (const den of [2, 3, 4, 6, 8, 12, 16, 24, 32]) {
             const num = Math.round(amount * den);
             if (Math.abs(num / den - amount) < tolerance) {
                 if (num === den) return "";
@@ -74,82 +69,73 @@ export class DurationManager {
     /**
      * Optimizes bar durations by:
      * 1. Notes fill to the next note or beat boundary
-     * 2. Consecutive rests are merged into single rest tokens
-     * 3. Empty beats become single beat-length rests
-     * 
-     * @param tokens Array of tokens with tick positions (0-31 for 32nd note grid)
-     * @returns Optimized array of tokens with recalculated durations
+     * 2. Consecutive rests are merged
      */
-    optimizeBarDurations(tokens: OptimizableToken[]): OptimizableToken[] {
-        // Build a sparse 32-slot map: which slots have notes?
+    //Modification start here
+    optimizeBarDurations(
+        tokens: OptimizableToken[],
+        beatSubdivisions: ('straight' | 'triplet')[]
+    ): OptimizableToken[] {
+        // Build a sparse map of 96 slots
         const slotMap: Map<number, OptimizableToken> = new Map();
 
         for (const token of tokens) {
             if (token.notes.length > 0) {
-                // It's a note (not a rest)
                 slotMap.set(token.tickPosition, token);
             }
         }
 
         const optimized: OptimizableToken[] = [];
 
-        // Process each beat (4 beats, 8 ticks each for 32nd notes)
-        // 4/4 time assumed: 4 beats * 8 ticks = 32 ticks total
+        // Process each beat (4 beats, 24 ticks each)
         for (let beatIdx = 0; beatIdx < 4; beatIdx++) {
-            const beatStart = beatIdx * 8;
-            const beatEnd = beatStart + 8;
+            const beatStart = beatIdx * 24;
+            const beatEnd = beatStart + 24;
+            const mode = beatSubdivisions[beatIdx];
 
-            // Find all notes in this beat
-            const notesInBeat: { pos: number; token: OptimizableToken }[] = [];
-            for (let tick = beatStart; tick < beatEnd; tick++) {
-                if (slotMap.has(tick)) {
-                    notesInBeat.push({ pos: tick, token: slotMap.get(tick)! });
+            let currentTick = beatStart;
+
+            while (currentTick < beatEnd) {
+                // Determine the next logical boundary
+                let nextBoundary: number;
+
+                if (mode === 'triplet') {
+                    // For triplets, every step is a hard boundary (8 ticks)
+                    nextBoundary = currentTick + 8;
+                } else {
+                    // For straight, find next note or end of beat
+                    nextBoundary = beatEnd;
+                    for (let t = currentTick + 1; t < beatEnd; t++) {
+                        if (slotMap.has(t)) {
+                            nextBoundary = t;
+                            break;
+                        }
+                    }
                 }
-            }
 
-            if (notesInBeat.length === 0) {
-                // Empty beat - single rest for the whole beat
-                optimized.push({
-                    tickPosition: beatStart,
-                    notes: [],
-                    duration: 8, // Whole beat (8 ticks)
-                    decorations: '',
-                    graceNote: '',
-                    openPrefix: ''
-                });
-            } else {
-                // Sort notes by position
-                notesInBeat.sort((a, b) => a.pos - b.pos);
+                const duration = nextBoundary - currentTick;
 
-                // Add rest before first note if needed
-                const firstNotePos = notesInBeat[0].pos;
-                if (firstNotePos > beatStart) {
+                if (slotMap.has(currentTick)) {
+                    const token = slotMap.get(currentTick)!;
                     optimized.push({
-                        tickPosition: beatStart,
+                        ...token,
+                        tickPosition: currentTick,
+                        duration: duration
+                    });
+                } else {
+                    // Rest
+                    optimized.push({
+                        tickPosition: currentTick,
                         notes: [],
-                        duration: firstNotePos - beatStart,
+                        duration: duration,
                         decorations: '',
                         graceNote: '',
                         openPrefix: ''
                     });
                 }
-
-                // Add notes with calculated durations
-                for (let i = 0; i < notesInBeat.length; i++) {
-                    const { pos, token } = notesInBeat[i];
-                    const nextPos = (i + 1 < notesInBeat.length)
-                        ? notesInBeat[i + 1].pos
-                        : beatEnd;
-
-                    optimized.push({
-                        ...token,
-                        tickPosition: pos,
-                        duration: nextPos - pos
-                    });
-                }
+                currentTick = nextBoundary;
             }
         }
-
         return optimized;
     }
 }

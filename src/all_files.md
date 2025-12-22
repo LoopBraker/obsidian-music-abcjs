@@ -1,3 +1,15 @@
+# Table of Contents
+
+1. [drum_grid.ts](#drum_grid.ts)
+2. [drum_grid/drum_definitions.ts](#drum_grid/drum_definitions.ts)
+3. [drum_grid/drum_duration_manager.ts](#drum_grid/drum_duration_manager.ts)
+4. [drum_grid/drum_grid_parser.ts](#drum_grid/drum_grid_parser.ts)
+5. [drum_grid/drum_types.ts](#drum_grid/drum_types.ts)
+
+---
+
+## drum_grid.ts
+ts
 import { EditorView } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
 import { DRUM_DEFS, DrumGroupDefinition, DrumDecoration } from './drum_grid/drum_definitions';
@@ -959,35 +971,45 @@ export class DrumGrid {
             const beatEnd = beatStart + this.durationManager.ticksPerBeat;
 
             const mode = this.beatSubdivisions[beatIdx];
-            //modification start
+
             if (mode === 'triplet') {
+                // STEP SEQUENCER LOGIC for Triplets
+                // Strictly sample grid at 3 positions: 0, 8, 16 relative to beatStart
+                // Output format: (3[note][note][note] with forced 1/8 note suffixes (12 ticks)
+
                 let beatString = '(3';
                 const offsets = [0, 8, 16];
 
-                // Force 1/8 note suffix for triplets (12 ticks in L:1/8 context)
+                // Force a "virtual" duration of 12 ticks (1/8 note) to generate the correct suffix
                 const forcedDurationTicks = 12;
                 const durationSuffix = this.durationManager.ticksToAbcSuffix(forcedDurationTicks);
 
                 for (const offset of offsets) {
                     const targetTick = beatStart + offset;
 
-                    // CHANGE HERE: Find token starting EXACTLY at this triplet step
                     const token = tokens.find(t =>
-                        t.tickPosition === targetTick && t.notes.length > 0
+                        t.tickPosition <= targetTick &&
+                        (t.tickPosition + t.duration) > targetTick &&
+                        t.notes.length > 0
                     );
 
+                    let tokenText = '';
                     if (token) {
-                        let tokenText = '';
                         if (token.notes.length === 1) {
                             tokenText = token.decorations + token.openPrefix + token.graceNote + token.notes[0];
                         } else {
+                            // Join chords correctly
                             tokenText = token.decorations + token.openPrefix + token.graceNote + '[' + token.notes.join('') + ']';
                         }
-                        beatString += tokenText + durationSuffix;
+                        tokenText += durationSuffix;
                     } else {
-                        beatString += 'z' + durationSuffix;
+                        // Rest
+                        tokenText = 'z' + durationSuffix;
                     }
+
+                    beatString += tokenText;
                 }
+
                 beats[beatIdx] = beatString;
 
             } else {
@@ -1070,7 +1092,7 @@ export class DrumGrid {
         }
 
         // 3. Optimize durations
-        const optimized = this.durationManager.optimizeBarDurations(grid, this.beatSubdivisions);
+        const optimized = this.durationManager.optimizeBarDurations(grid);
 
         // 4. Serialize back to ABC
         return this.serializeOptimizedBar(optimized);
@@ -1158,7 +1180,7 @@ export class DrumGrid {
         }
 
         // 5. Optimize durations
-        const optimized = this.durationManager.optimizeBarDurations(grid, this.beatSubdivisions);
+        const optimized = this.durationManager.optimizeBarDurations(grid);
 
         // --- NEW: CLAMP TRIPLETS TO DISCRETE STEPS ---
         // For triplet beats, we force tokens to be maximum 8 ticks (one triplet step).
@@ -1625,7 +1647,7 @@ export class DrumGrid {
         }
 
         // 4. Optimize durations and serialize
-        const optimized = this.durationManager.optimizeBarDurations(grid, this.beatSubdivisions);
+        const optimized = this.durationManager.optimizeBarDurations(grid);
         const newBar = this.serializeOptimizedBar(optimized, this.needsBarDelimiter());
 
         applyChange(newBar);
@@ -1694,3 +1716,507 @@ export class DrumGrid {
         this.contextMenu = menu;
     }
 }
+
+
+
+## drum_grid/drum_definitions.ts
+ts
+export interface DrumDecoration {
+    label: string;      // "Accent", "Ghost"
+    abc: string;        // "!>!", "!g!"
+    icon: string;       // ">", "(•)"
+}
+
+export interface DrumAlt {
+    midi: number;       // 46 (Open HH), 37 (Side Stick)
+    icon: string;       // "○", "x"
+    abcPrefix?: string; // "o" (Specific for HiHat Open)
+    label: string;      // Name for the menu
+}
+
+export interface DrumGroupDefinition {
+    id: string;         // 'hihat', 'snare'
+    label: string;      // Display Name
+    baseMidi: number;   // The main note (42, 38)
+    baseIcon: string;   // "✕", "●"
+
+    // Question 3: Alts as a list (currently we support 1 active alt in the UI logic, but config allows listing)
+    alts: DrumAlt[];
+
+    // Question 4: Decorations
+    decorations: DrumDecoration[];
+
+    // Question 5: Flam support
+    allowFlam: boolean;
+}
+
+// THE CONFIGURATION
+export const DRUM_DEFS: DrumGroupDefinition[] = [
+    {
+        id: 'hihat',
+        label: 'Hi-Hat',
+        baseMidi: 42, // Closed
+        baseIcon: '✕',
+        alts: [
+            { midi: 46, icon: '○', abcPrefix: 'o', label: 'Open' } // Open
+        ],
+        decorations: [
+            { label: 'Accent', abc: '!>!', icon: '>' }
+        ],
+        allowFlam: false
+    },
+    {
+        id: 'snare',
+        label: 'Snare',
+        baseMidi: 38, // Snare
+        baseIcon: '●',
+        alts: [
+            { midi: 37, icon: 'x', label: 'Side Stick' } // Side Stick
+        ],
+        decorations: [
+            { label: 'Ghost', abc: '!g!', icon: '(•)' },
+            { label: 'Accent', abc: '!>!', icon: '>' }
+        ],
+        allowFlam: true
+    },
+    {
+        id: 'Hi-Mid Tom',
+        label: 'Hi-Mid Tom',
+        baseMidi: 48, // Hi-Mid Tom
+        baseIcon: '●',
+        alts: [],
+        decorations: [
+            { label: 'Ghost', abc: '!g!', icon: '(•)' },
+            { label: 'Accent', abc: '!>!', icon: '>' }
+        ],
+        allowFlam: true
+    },
+];
+
+
+## drum_grid/drum_duration_manager.ts
+ts
+
+import { OptimizableToken } from './drum_types';
+
+export class DurationManager {
+    public readonly ticksPerBar = 96; // 24 ticks per beat * 4 beats
+    public readonly ticksPerBeat = 24;
+    private ticksPerL: number = 12; // Default for L:1/8 (96/8 = 12 ticks)
+
+    updateHeaderConfig(content: string) {
+        const match = content.match(/^L:\s*(1\/\d+|1)/m);
+        const lValue = match ? match[1] : "1/8";
+
+        // We want base resolution to be 96 ticks per bar (4/4)
+        // L:1/1 = 96 ticks
+        // L:1/4 = 24 ticks
+        // L:1/8 = 12 ticks
+        // L:1/16 = 6 ticks
+        // L:1/32 = 3 ticks
+
+        if (lValue === "1") {
+            this.ticksPerL = 96;
+        } else {
+            const parts = lValue.split('/');
+            const den = parseInt(parts[1]) || 1;
+            this.ticksPerL = 96 / den;
+        }
+    }
+
+    abcDurationToTicks(abcDurationStr: string): number {
+        if (!abcDurationStr) return this.ticksPerL;
+        if (abcDurationStr === "/") return this.ticksPerL / 2;
+
+        if (abcDurationStr.includes("/")) {
+            const [n, d] = abcDurationStr.split("/").map(x => x === "" ? undefined : parseInt(x));
+            return ((n ?? 1) / (d ?? 2)) * this.ticksPerL;
+        }
+        return parseInt(abcDurationStr) * this.ticksPerL;
+    }
+
+    // Converts grid ticks to ABC string suffix
+    // ticks is absolute number of ticks (e.g. 12 for 1/8 note)
+    ticksToAbcSuffix(ticks: number): string {
+        const ratio = ticks / this.ticksPerL;
+
+        if (ratio === 1) return "";
+        if (ratio === 0.5) return "/2";
+        if (ratio === 0.25) return "/4";
+        if (ratio === 2) return "2";
+
+        // Fraction handling
+        return this.toFraction(ratio);
+    }
+
+    private toFraction(amount: number): string {
+        if (amount === 0.75) return "3/4";
+        if (amount === 1.5) return "3/2"; // dotted
+        const tolerance = 0.0001;
+        // Check common denominators
+        for (const den of [2, 3, 4, 6, 8, 12, 16, 24, 32]) {
+            const num = Math.round(amount * den);
+            if (Math.abs(num / den - amount) < tolerance) {
+                if (num === den) return "";
+                return `${num}/${den}`;
+            }
+        }
+        return amount.toString();
+    }
+
+    /**
+     * Optimizes bar durations by:
+     * 1. Notes fill to the next note or beat boundary
+     * 2. Consecutive rests are merged
+     */
+    optimizeBarDurations(tokens: OptimizableToken[]): OptimizableToken[] {
+        // Build a sparse map of 96 slots
+        const slotMap: Map<number, OptimizableToken> = new Map();
+
+        for (const token of tokens) {
+            if (token.notes.length > 0) {
+                slotMap.set(token.tickPosition, token);
+            }
+        }
+
+        const optimized: OptimizableToken[] = [];
+
+        // Process each beat (4 beats, 24 ticks each)
+        for (let beatIdx = 0; beatIdx < 4; beatIdx++) {
+            const beatStart = beatIdx * 24;
+            const beatEnd = beatStart + 24;
+
+            let currentTick = beatStart;
+
+            // Sub-loop within the beat
+            while (currentTick < beatEnd) {
+                // Find next note in this beat
+                let nextNoteTick = beatEnd;
+                for (let t = currentTick + 1; t < beatEnd; t++) {
+                    if (slotMap.has(t)) {
+                        nextNoteTick = t;
+                        break;
+                    }
+                }
+
+                if (slotMap.has(currentTick)) {
+                    // There is a note at currentTick
+                    const token = slotMap.get(currentTick)!;
+
+                    // Duration is distance to next note or beat end
+                    const duration = nextNoteTick - currentTick;
+
+                    optimized.push({
+                        ...token,
+                        tickPosition: currentTick,
+                        duration: duration
+                    });
+                    currentTick = nextNoteTick;
+                } else {
+                    // Start of a rest period
+                    const duration = nextNoteTick - currentTick;
+                    optimized.push({
+                        tickPosition: currentTick,
+                        notes: [], // Rest
+                        duration: duration,
+                        decorations: '',
+                        graceNote: '',
+                        openPrefix: ''
+                    });
+                    currentTick = nextNoteTick;
+                }
+            }
+        }
+        return optimized;
+    }
+}
+
+
+## drum_grid/drum_grid_parser.ts
+ts
+
+import { DurationManager } from './drum_duration_manager';
+import { DrumGroupDefinition } from './drum_definitions';
+import { Token, NoteState, GroupedInstrument } from './drum_types';
+
+export class DrumGridParser {
+    constructor(private durationManager: DurationManager) { }
+
+    // Clean bar content from annotations, decorations, etc.
+    cleanBarContent(barContent: string): string {
+        let cleanBar = barContent;
+        cleanBar = cleanBar.replace(/"[^"]*"/g, '');       // Remove text in quotes (annotations)
+        cleanBar = cleanBar.replace(/\{.*?\}/g, '');       // Remove grace notes in curly brackets
+        cleanBar = cleanBar.replace(/!.*?!/g, '');         // Remove decorations !...!
+        cleanBar = cleanBar.replace(/\+.*?\+/g, '');       // Remove old-style decorations +...+
+        cleanBar = cleanBar.replace(/\[[A-Za-z]:.*?\]/g, ''); // Remove inline info fields
+        cleanBar = cleanBar.replace(/\[%%.*?\]/g, '');     // Remove inline directives
+        cleanBar = cleanBar.replace(/%%.*/g, '');          // Remove comments
+        return cleanBar;
+    }
+
+    // Extract unique note characters from a bar
+    extractNotesFromBar(barContent: string): Set<string> {
+        const cleanBar = this.cleanBarContent(barContent);
+        const notes = new Set<string>();
+
+        const chordRegex = /\[([^\]]*)\]/g;
+        let remaining = cleanBar;
+
+        const notePattern = /([\^=_]*[A-Ga-g][,']*)/g;
+
+        remaining = remaining.replace(chordRegex, (match, chordContent) => {
+            let noteMatch;
+            while ((noteMatch = notePattern.exec(chordContent)) !== null) {
+                notes.add(noteMatch[1]);
+            }
+            return '';
+        });
+
+        let match;
+        while ((match = notePattern.exec(remaining)) !== null) {
+            notes.add(match[1]);
+        }
+
+        return notes;
+    }
+
+    parseBarToTokens(barText: string): Token[] {
+        const tokens: Token[] = [];
+        // Extract Tuplet Tokens: (p followed by optional :q and :r
+        // Also standard tokens
+        // Regex needs to split keeping the delimiters or just match all tokens sequentially
+
+        // This regex matches:
+        // 1. Tuplets: (\d+(?::\d+(?::\d+)?)?)
+        // 2. Notes/Rests/Decorations: ... existing structure ...
+        const mainRegex = /(\(\d+(?::\d+(?::\d+)?)?)|((?:!.*?!)*(?:\{[^}]+\})?(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
+
+        let match;
+
+        // Tuplet Parsing State
+        let tupletRemaining = 0; // r notes remaining
+        let tupletFactor = 1;    // q / p
+
+        while ((match = mainRegex.exec(barText)) !== null) {
+            const fullMatch = match[0];
+            const tupletStr = match[1]; // e.g. (3 or (3:2:3
+            const coreContent = match[2];
+            const durationStr = match[3]; // only for notes
+
+            // CASE 1: Tuplet Definition found
+            if (tupletStr) {
+                // Parse (p:q:r
+                // Remove '('
+                const parts = tupletStr.substring(1).split(':');
+                const p = parseInt(parts[0]);
+                let q = p === 3 ? 2 : p; // Default q? Standard says: if q not given, it depends on time signature... 
+                // A simpler default for now: (3 -> p=3, q=2, r=3.
+                // Standard: if q absent, q=2 if p in [3,6,9], else q=some_other. Let's assume (3 always means 2 time units.
+
+                if (parts.length > 1 && parts[1]) q = parseInt(parts[1]);
+                let r = p;
+                if (parts.length > 2 && parts[2]) r = parseInt(parts[2]);
+
+                tupletRemaining = r;
+                tupletFactor = q / p;
+
+                // Do NOT add this as a token to be rendered, but we might want to preserve it?
+                // For now, this parser produces TOKENS for the GRID. 
+                // The grid generation uses duration. 
+                // We should probably NOT output a token for the "(3" text itself if the consumer expects only notes.
+                // BUT `parseBarToTokens` is also used for re-serialization?
+                // If we don't return it, we lose it when regenerating text?
+                // Currently serialization relies on `serializeOptimizedBar` which RE-GENERATES the string from the grid.
+                // So we don't need to preserve the source token `(3` if our serializer can reconstruct it.
+                // WE DO need to handle it for correct START/END positions if we were doing mapping.
+
+                // Let's Skip adding a token for (3, but effect the state.
+                continue;
+            }
+
+            // CASE 2: Note/Rest found
+            if (coreContent) {
+                const start = match.index;
+                const end = start + fullMatch.length;
+
+                let durationTicks = 0;
+                let notes: string[] = [];
+
+                if (coreContent.startsWith('"')) {
+                    durationTicks = 0;
+                } else {
+                    let rawTicks = this.durationManager.abcDurationToTicks(durationStr);
+
+                    // APPLY TUPLET FACTOR
+                    if (tupletRemaining > 0) {
+                        // Apply scaling
+                        // For (3, factor is 2/3. 
+                        // If rawTicks is 12 (1/8 note), result 8.
+                        durationTicks = rawTicks * tupletFactor;
+                        tupletRemaining--;
+                    } else {
+                        durationTicks = rawTicks;
+                    }
+                }
+
+                if (!coreContent.toLowerCase().startsWith('z') && !coreContent.toLowerCase().startsWith('x') && !coreContent.startsWith('"')) {
+                    let cleanContent = coreContent.replace(/!.*?!/g, '');
+                    let inner = cleanContent.replace(/[\[\]]/g, "");
+                    inner = inner.replace(/\{[^}]+\}/g, ""); // strip grace notes
+
+                    const notePattern = /([\^=_]?[A-Ga-g][,']*)/g;
+                    let noteMatch;
+                    while ((noteMatch = notePattern.exec(inner)) !== null) {
+                        if (noteMatch[1]) {
+                            notes.push(noteMatch[1]);
+                        }
+                    }
+                }
+
+                tokens.push({ text: fullMatch, start, end, notes, duration: durationTicks });
+            }
+        }
+        return tokens;
+    }
+
+    // Convert current bar string into grid time slots using tokens
+    parseBarToGrid(barText: string): string[][] {
+        const tokens = this.parseBarToTokens(barText);
+        const grid: string[][] = Array(this.durationManager.ticksPerBar).fill(null).map((): string[] => []);
+
+        let currentTick = 0;
+        for (const token of tokens) {
+            const tickIdx = Math.round(currentTick);
+
+            if (tickIdx >= this.durationManager.ticksPerBar) break;
+
+            if (token.notes.length > 0) {
+                for (const note of token.notes) {
+                    grid[tickIdx].push(note);
+                }
+            }
+            currentTick += token.duration;
+        }
+        return grid;
+    }
+
+    // Generic parser for grouped instruments
+    // Returns: { char: string, state: HiHatState }[][] for ticksPerBar
+    parseBarToStateGrid(barText: string, instrument: GroupedInstrument): NoteState[] {
+        const grid: NoteState[] = Array(this.durationManager.ticksPerBar).fill(null);
+        const tokens = this.parseBarToTokens(barText);
+
+        const def = instrument.def;
+        const altPrefix = def.alts[0]?.abcPrefix || null;
+
+        let currentTick = 0;
+        for (const token of tokens) {
+            const tickIdx = Math.round(currentTick);
+            if (tickIdx >= this.durationManager.ticksPerBar) break;
+
+            const hasBaseChar = token.notes.includes(instrument.baseChar);
+            const hasAltChar = token.notes.includes(instrument.altChar);
+            const hasAltPrefix = altPrefix ? token.text.includes(altPrefix) : false;
+
+            if (hasBaseChar || hasAltChar || (hasAltPrefix && hasBaseChar)) {
+                const isFlam = /\{[^}]+\}/.test(token.text);
+                const activeDecoration = def.decorations.find(d => token.text.includes(d.abc));
+
+                if (def.allowFlam && isFlam) {
+                    grid[tickIdx] = 'flam';
+                } else if (activeDecoration) {
+                    grid[tickIdx] = 'decoration';
+                } else if (hasAltPrefix || hasAltChar) {
+                    grid[tickIdx] = 'alt';
+                } else {
+                    grid[tickIdx] = 'base';
+                }
+            }
+            currentTick += token.duration;
+        }
+
+        return grid;
+    }
+
+    getDecorationIconAtTick(barText: string, tickIndex: number, def: DrumGroupDefinition): string {
+        const tokens = this.parseBarToTokens(barText);
+        let currentTick = 0;
+
+        for (const token of tokens) {
+            const durationTicks = token.duration; // Already scaled by tuplet logic
+
+            // Allow sloppy matching: if the token COVERS this tick index
+            // But wait, the grid logic often aligns exactly start?
+            // "getDecorationIconAtTick" usually looks for the decoration active on the note STARTING at tickIndex.
+
+            // Check if token STARTS at or BEFORE, and ends AFTER?
+            // Usually we want the note at this exact tick grid position.
+            // Let's match if the token *contains* the tick or starts there.
+            // Actually, based on previous implementation:
+            // if (currentTick <= tickIndex && (currentTick + ticks) > tickIndex)
+
+            if (Math.round(currentTick) <= tickIndex && (Math.round(currentTick + durationTicks)) > tickIndex) {
+                // Check this token for decorations
+                const matched = def.decorations.find(d => token.text.includes(d.abc));
+                if (matched) return matched.icon;
+            }
+
+            currentTick += durationTicks;
+        }
+        return '?';
+    }
+}
+
+
+
+## drum_grid/drum_types.ts
+ts
+
+import { DrumGroupDefinition } from './drum_definitions';
+
+export interface PercMap {
+    label: string;
+    char: string;
+    midi: number;
+}
+
+export type NoteState = 'base' | 'alt' | 'decoration' | 'flam' | null;
+
+export interface GroupedInstrument {
+    type: 'grouped';
+    def: DrumGroupDefinition;
+    label: string;
+    baseChar: string;
+    altChar: string;
+}
+
+export interface SingleInstrument {
+    type: 'single';
+    label: string;
+    char: string;
+    midi: number;
+}
+
+export type InstrumentRow = GroupedInstrument | SingleInstrument;
+
+export interface Token {
+    text: string;
+    start: number;
+    end: number;
+    notes: string[];
+    duration: number; // In ticks
+    rawText?: string;
+}
+
+export interface OptimizableToken {
+    tickPosition: number;
+    notes: string[];
+    duration: number;
+    decorations: string;
+    graceNote: string;
+    openPrefix: string;
+}
+
+
+
