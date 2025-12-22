@@ -1,6 +1,7 @@
 import { EditorView } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
 import { DRUM_DEFS, DrumGroupDefinition, DrumDecoration } from './drum_grid/drum_definitions';
+import { DurationManager } from './drum_grid/drum_duration_manager';
 
 interface PercMap {
     label: string; // The note name or label (e.g. "Kick", "Snare") - derived or explicit? User just gives char and midi. 
@@ -35,8 +36,6 @@ interface SingleInstrument {
 
 type InstrumentRow = GroupedInstrument | SingleInstrument;
 
-// Hi-Hat note state
-type HiHatState = 'closed' | 'open' | 'accent' | null;
 
 interface Token {
     text: string;
@@ -104,9 +103,9 @@ export class DrumGrid {
     private percMaps: PercMap[] = [];
     private visibleMaps: PercMap[] = []; // The ones shown in the grid
     private visibleRows: InstrumentRow[] = []; // Grouped/single instruments for rendering
-    private maxVisible = 3;
     private currentBar: string = "";
     private currentBarContext: { start: number, end: number } | null = null;
+    private durationManager = new DurationManager();
     private timeSignatureOpt = 16; // Granularity (16th notes)
     private contextMenu: HTMLElement | null = null;
     private manuallyShownMidis: Set<number> = new Set();
@@ -155,6 +154,10 @@ export class DrumGrid {
 
     update(content: string, cursor: number) {
         this.fullContent = content;
+
+        this.durationManager.updateHeaderConfig(content);
+
+
         // 1. Parse %%percmap directives only if content changed
         if (content !== this.lastContent) {
             this.parsePercMaps(content);
@@ -223,7 +226,7 @@ export class DrumGrid {
         let remaining = cleanBar;
 
         // Simplified Regex: Just the note
-        const notePattern = /([\^=_]?[A-Ga-g][,']*)/g;
+        const notePattern = /([\^=_]*[A-Ga-g][,']*)/g;
 
         remaining = remaining.replace(chordRegex, (match, chordContent) => {
             let noteMatch;
@@ -421,64 +424,36 @@ export class DrumGrid {
     // Returns: { char: string, state: HiHatState }[][] for 16 ticks
     private parseBarToStateGrid(barText: string, instrument: GroupedInstrument): NoteState[] {
         const grid: NoteState[] = Array(16).fill(null);
-        const tokenRegex = /((?:!.*?!)*(?:o)?(?:\{[^}]+\})?(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
+        const tokens = this.parseBarToTokens(barText); // Reuse our unified parser
 
         const def = instrument.def;
-        // Pre-calculate what to look for
-        const decAbc = def.decorations[0]?.abc || 'NOT_FOUND';
-        const altDef = def.alts[0];
-        const altPrefix = altDef?.abcPrefix || null;
+        const altPrefix = def.alts[0]?.abcPrefix || null;
 
         let currentTick = 0;
-        let match;
+        for (const token of tokens) {
+            const tickIdx = Math.round(currentTick);
+            if (tickIdx >= 16) break;
 
-        while ((match = tokenRegex.exec(barText)) !== null) {
-            if (currentTick >= 16) break;
-            const fullText = match[0];
-            const coreContent = match[1];
-            const durationStr = match[2];
+            // Check if this token contains our instrument's base or alt char
+            const hasBaseChar = token.notes.includes(instrument.baseChar);
+            const hasAltChar = token.notes.includes(instrument.altChar);
+            const hasAltPrefix = altPrefix ? token.text.includes(altPrefix) : false;
 
-            // ... (Duration parsing logic ...
-            let duration = 1;
-            if (durationStr === '/') duration = 0.5;
-            else if (durationStr && !durationStr.includes('/')) duration = parseInt(durationStr);
-            if (coreContent.startsWith('"')) duration = 0;
-            const ticks = (duration === 0 && coreContent.startsWith('"')) ? 0 : (Math.round(duration) || 1);
+            if (hasBaseChar || hasAltChar || (hasAltPrefix && hasBaseChar)) {
+                const isFlam = /\{[^}]+\}/.test(token.text);
+                const activeDecoration = def.decorations.find(d => token.text.includes(d.abc));
 
-            const tickIdx = Math.floor(currentTick);
-
-            // 1. Detect Flam
-            const isFlam = /\{[^}]+\}/.test(coreContent);
-
-            // 2. Detect Decoration (Generic check against config)
-            const activeDecoration = def.decorations.find(d => coreContent.includes(d.abc));
-            const isDecorated = !!activeDecoration;
-
-            // 3. Detect Alt Prefix (e.g., 'o')
-            const hasAltPrefix = altPrefix ? new RegExp(`^((?:!.*?!)*)${altPrefix}`).test(coreContent) : false;
-
-            // Clean content to check inner chars
-            // Remove decorations, 'o', AND grace notes to find the main note
-            let innerContent = coreContent.replace(/^((?:!.*?!)*)(?:\{[^}]+\})?/, '');
-
-            if (innerContent.startsWith('[')) innerContent = innerContent.slice(1, -1);
-
-            const hasBaseChar = innerContent.includes(instrument.baseChar);
-            const hasAltChar = innerContent.includes(instrument.altChar);
-
-            if (hasBaseChar || hasAltChar) {
                 if (def.allowFlam && isFlam) {
                     grid[tickIdx] = 'flam';
-                } else if (isDecorated) {
+                } else if (activeDecoration) {
                     grid[tickIdx] = 'decoration';
                 } else if (hasAltPrefix || hasAltChar) {
-                    // Logic tweak: use config to decide if prefix matters
                     grid[tickIdx] = 'alt';
                 } else {
                     grid[tickIdx] = 'base';
                 }
             }
-            currentTick += ticks;
+            currentTick += token.duration;
         }
 
         return grid;
@@ -819,7 +794,6 @@ export class DrumGrid {
                     vLine.style.pointerEvents = 'none';
 
                     if (instrumentRow.type === 'grouped' && stateGrid) {
-                        const stateGrid = this.parseBarToStateGrid(this.currentBar, instrumentRow);
                         // Grouped hi-hat rendering
                         const state = stateGrid[globalStep];
                         if (state) {
@@ -983,27 +957,6 @@ export class DrumGrid {
 
     private parseBarToTokens(barText: string): Token[] {
         const tokens: Token[] = [];
-        // Regex to match:
-        // 1. Chords: [...] (plus duration)
-        // 2. Single notes/rests with optional drum modifiers
-        // 3. Rests: z|Z ...
-
-        // IMPORTANT: In drum notation:
-        // - Prefixes (!>!, !g!) can be OUTSIDE chords: !>![gF], !g![gF]
-        // - These should NOT be treated as separate notes!
-
-        // Revised Regex to handle drum modifiers and prefixes outside chords:
-        // - (?:!>!)? - optional accent decoration (can be outside chord)
-        // - Then either:
-        //   - \[[^\]]+\] - a chord
-        //   - OR a single note with modifiers
-
-        // Group 1: Core content (Prefix + Chord OR Prefix + Note with modifiers OR Rest)
-        // Group 2: Duration
-        // Revised Regex to handle generic decorations and modifiers, AND quoted strings:
-        // - (?:!.*?!)* - any number of decorations (allows generic like !f!, !trill!)
-        // - "[^"]*" - quoted strings (annotations) - consume but ignore
-        // - Then either chord or single note
         const tokenRegex = /((?:!.*?!)*(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
 
         let match;
@@ -1014,43 +967,19 @@ export class DrumGrid {
             const start = match.index;
             const end = start + fullText.length;
 
-            let duration = 0;
+            let durationTicks = 0; // Use ticks based on DurationManager
             let notes: string[] = [];
 
-            // If it's a quoted string, it has 0 duration and 0 notes
             if (coreContent.startsWith('"')) {
-                duration = 0; // Ignore duration for annotations in drum grid
-                notes = [];
+                durationTicks = 0;
             } else {
-                // Parse Duration
-                duration = 1; // Default
-                if (durationStr === '/') duration = 0.5;
-                else if (durationStr.includes('/')) {
-                    const parts = durationStr.split('/');
-                    const num = parts[0] ? parseInt(parts[0]) : 1;
-                    const den = parts[1] ? parseInt(parts[1]) : 2;
-                    duration = num / (den / 2); // assuming /2 is base? No, it's relative.
-                    if (parts.length === 2 && parts[1] === "") {
-                        const d = parseInt(parts[1] || '2'); // "C/" -> C/2
-                        duration = (parts[0] ? parseInt(parts[0]) : 1) / d;
-                    } else if (parts.length === 2) {
-                        const n = parts[0] ? parseInt(parts[0]) : 1;
-                        const d = parseInt(parts[1]);
-                        duration = n / d;
-                    }
-                } else if (durationStr) {
-                    duration = parseInt(durationStr);
-                }
+                // --- ONLY CHANGE HERE: Use manager to get grid ticks ---
+                durationTicks = this.durationManager.abcDurationToTicks(durationStr);
             }
 
-            // Extract Notes (the base note characters, stripping modifiers like o, !...!)
             if (!coreContent.toLowerCase().startsWith('z') && !coreContent.toLowerCase().startsWith('x') && !coreContent.startsWith('"')) {
-                let cleanContent = coreContent.replace(/!.*?!/g, ''); // Strip decorations
-                let inner = cleanContent;
-                inner = inner.replace(/[\[\]]/g, ""); // Remove brackets
-
-                // New Pattern: Just looks for pitch (e.g., ^g, G,)
-                // Removed the 'n' prefix check
+                let cleanContent = coreContent.replace(/!.*?!/g, '');
+                let inner = cleanContent.replace(/[\[\]]/g, "");
                 const notePattern = /([\^=_]?[A-Ga-g][,']*)/g;
                 let noteMatch;
                 while ((noteMatch = notePattern.exec(inner)) !== null) {
@@ -1060,7 +989,7 @@ export class DrumGrid {
                 }
             }
 
-            tokens.push({ text: fullText, start, end, notes, duration });
+            tokens.push({ text: fullText, start, end, notes, duration: durationTicks });
         }
         return tokens;
     }
@@ -1072,29 +1001,22 @@ export class DrumGrid {
 
         let currentTick = 0;
         for (const token of tokens) {
-            if (currentTick >= 16) break;
+            // Use Math.round to ensure fractional ticks (like 0.5) align to the nearest grid step
+            const tickIdx = Math.round(currentTick);
 
-            // Determine how many ticks this token covers
-            // For now, round to nearest integer tick, but keep float tracking?
-            // "Assume 16th notes" -> Everything usually aligns to integers.
-            const ticks = Math.round(token.duration);
+            if (tickIdx >= 16) break;
 
-            // Populate grid for the ONSET tick only? Or all ticks?
-            // Usually step sequencers show the note at the start.
             if (token.notes.length > 0) {
-                // Check if these notes match map
                 for (const note of token.notes) {
-                    for (const map of this.percMaps) {
-                        // Match the base note character (with accidentals)
-                        // "g" matches "g", "^g" matches "^g"
-                        if (note === map.char) {
-                            grid[Math.floor(currentTick)].push(map.char);
-                        }
+                    // Exact match for accidentals as fixed previously
+                    if (this.percMaps.some(map => map.char === note)) {
+                        grid[tickIdx].push(note);
                     }
                 }
             }
 
-            currentTick += (token.text.startsWith('"')) ? 0 : (ticks || 1);
+            // Increment currentTick by the calculated duration from DurationManager
+            currentTick += token.duration;
         }
         return grid;
     }
@@ -1631,19 +1553,11 @@ export class DrumGrid {
 
     // Modify hi-hat note in the bar
     private modifyGroupedNoteInBar(tickIndex: number, instrument: GroupedInstrument, currentState: NoteState, targetState: NoteState, noteStr: string) {
-
         const def = instrument.def;
 
-        // 1. Parse tokens 
         const tokenRegex = /((?:!.*?!)*(?:o)?(?:\{[^}]+\})?(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
 
-        interface ExtToken {
-            text: string;
-            start: number;
-            end: number;
-            duration: number;
-        }
-
+        interface ExtToken { text: string; start: number; end: number; duration: number; }
         const tokens: ExtToken[] = [];
         let match;
 
@@ -1652,53 +1566,38 @@ export class DrumGrid {
             const coreContent = match[1];
             const durationStr = match[2];
 
+            // --- ONLY CHANGE HERE: Use manager for the search loop ---
             let duration = 0;
             if (coreContent.startsWith('"')) {
                 duration = 0;
             } else {
-                duration = 1;
-                if (durationStr === '/') duration = 0.5;
-                else if (durationStr.includes('/')) {
-                    const parts = durationStr.split('/');
-                    const num = parts[0] ? parseInt(parts[0]) : 1;
-                    const den = parts[1] ? parseInt(parts[1]) : 2;
-                    duration = num / den;
-                } else if (durationStr) {
-                    duration = parseInt(durationStr);
-                }
+                duration = this.durationManager.abcDurationToTicks(durationStr);
             }
 
             tokens.push({
                 text: fullText,
                 start: match.index,
                 end: match.index + fullText.length,
-                duration: (duration === 0 && fullText.startsWith('"')) ? 0 : (Math.round(duration) || 1)
+                duration: duration // Stored as grid ticks
             });
         }
 
-        // 2. Find token at tick
         let currentTick = 0;
         let targetTokenIdx = -1;
 
         for (let i = 0; i < tokens.length; i++) {
-            if (currentTick <= tickIndex && (currentTick + tokens[i].duration) > tickIndex) {
+            // --- ONLY CHANGE HERE: Use epsilon (0.01) to handle floating point math ---
+            if (currentTick <= tickIndex && (currentTick + tokens[i].duration) > (tickIndex + 0.01)) {
                 targetTokenIdx = i;
                 break;
             }
             currentTick += tokens[i].duration;
         }
 
-        // Helper for dispatching changes
         const applyChange = (newBarText: string) => {
             const view = this.editorViewGetter();
             if (view && this.currentBarContext) {
-                view.dispatch({
-                    changes: {
-                        from: this.currentBarContext.start,
-                        to: this.currentBarContext.end,
-                        insert: newBarText
-                    }
-                });
+                view.dispatch({ changes: { from: this.currentBarContext.start, to: this.currentBarContext.end, insert: newBarText } });
                 const lengthDiff = newBarText.length - this.currentBar.length;
                 this.currentBar = newBarText;
                 this.currentBarContext.end += lengthDiff;
@@ -1706,7 +1605,9 @@ export class DrumGrid {
             }
         };
 
-        // 3. Handle Append Mode
+        // --- NEW: Suffix required for a single 16th note diamond ---
+        const unitSuffix = this.durationManager.ticksToAbcSuffix(1);
+
         if (targetTokenIdx === -1) {
             const gap = tickIndex - currentTick;
             if (gap < 0) return;
@@ -1715,52 +1616,41 @@ export class DrumGrid {
             for (let k = 0; k < gap; k++) {
                 const tick = currentTick + k;
                 if (tick > 0 && tick % 4 === 0) appendStr += ' ';
-                appendStr += 'z';
+                // --- CHANGE HERE: Append rests with correct unit suffix ---
+                appendStr += 'z' + unitSuffix;
             }
             if (tickIndex > 0 && tickIndex % 4 === 0) appendStr += ' ';
 
             if (targetState) {
-                appendStr += noteStr;
+                // --- CHANGE HERE: Append note with correct unit suffix ---
+                appendStr += noteStr + unitSuffix;
             } else {
-                appendStr += 'z';
+                appendStr += 'z' + unitSuffix;
             }
 
             applyChange(this.currentBar + appendStr);
             return;
         }
 
-        // 4. Modify existing token
         const token = tokens[targetTokenIdx];
         let newTokenText = '';
 
-        const durMatch = token.text.match(/([\d\/]+)$/);
-        const durationPart = durMatch ? durMatch[1] : '';
+        // --- CHANGE HERE: Keep the original token's duration suffix ---
+        const durationPart = this.durationManager.ticksToAbcSuffix(token.duration);
 
-        // Helper
         const escapeRegExp = (string: string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
         if (targetState === null) {
-            // == DELETION CASE ==
-
             if (token.text.includes('[')) {
-                // Parse existing prefix and content
                 const prefixMatch = token.text.match(/^((?:!.*?!)*)(o)?(?:(\{.*?\})?)?(\[.*)/);
                 let decorations = prefixMatch?.[1] || '';
                 const chordPart = prefixMatch?.[4] || token.text;
-
-                // FIX: Loop through ALL definitions and remove ANY that exist
                 def.decorations.forEach(dec => {
                     decorations = decorations.replace(new RegExp(escapeRegExp(dec.abc), 'g'), '');
                 });
-
                 const chordInner = prefixMatch?.[4].match(/\[([^\]]+)\]/)?.[1] || '';
                 const notes = chordInner.match(/[\^=_]*[A-Ga-g][,']*/g) || [];
-
-                // Filter out base/alt notes
-                const remaining = notes.filter(n =>
-                    !n.includes(instrument.baseChar) && !n.includes(instrument.altChar)
-                );
-
+                const remaining = notes.filter(n => n !== instrument.baseChar && n !== instrument.altChar);
                 if (remaining.length === 0) {
                     newTokenText = 'z' + durationPart;
                 } else if (remaining.length === 1) {
@@ -1772,99 +1662,58 @@ export class DrumGrid {
                 newTokenText = 'z' + durationPart;
             }
         } else {
-            // == ADD / CHANGE CASE ==
-
-            // Extract modifiers from the REQUESTED noteStr
             const noteMatch = noteStr.match(/^((?:!.*?!)*)(o)?(?:(\{.*?\})?)?(.*)$/);
-
             const newDecorations = noteMatch?.[1] || '';
             const newOpenPrefix = noteMatch?.[2] || '';
             const newGrace = noteMatch?.[3] || '';
             const innerNote = noteMatch?.[4] || noteStr;
 
             if (token.text.includes('[')) {
-                // -- CHORD LOGIC --
-
                 const existingPrefixMatch = token.text.match(/^((?:!.*?!)*)(o)?(?:(\{.*?\})?)?(\[.*)/);
                 let existingDecorations = existingPrefixMatch?.[1] || '';
                 const chordPart = existingPrefixMatch?.[4] || token.text;
                 const chordInner = chordPart.match(/\[([^\]]+)\]/)?.[1] || '';
-
                 const notes = chordInner.match(/[\^=_]*[A-Ga-g][,']*/g) || [];
-
-                // Filter out OLD instrument notes
-                const filtered = notes.filter(n =>
-                    !n.includes(instrument.baseChar) && !n.includes(instrument.altChar)
-                );
-
-                // Add NEW note
+                const filtered = notes.filter(n => n !== instrument.baseChar && n !== instrument.altChar);
                 const newInner = filtered.join('') + innerNote;
-
-                // Cleanup decorations
                 def.decorations.forEach(dec => {
                     existingDecorations = existingDecorations.replace(new RegExp(escapeRegExp(dec.abc), 'g'), '');
                 });
-
                 let combinedDecorations = existingDecorations;
                 if (newDecorations && !combinedDecorations.includes(newDecorations)) {
                     combinedDecorations += newDecorations;
                 }
-
                 const combinedOpen = newOpenPrefix || '';
                 const combinedGrace = newGrace || '';
-
                 newTokenText = `${combinedDecorations}${combinedOpen}${combinedGrace}[${newInner}]${durationPart}`;
-
             } else if (token.text.match(/^z/i)) {
-                // -- REST LOGIC --
                 newTokenText = noteStr + durationPart;
-
             } else {
-                // -- SINGLE NOTE LOGIC --
-
                 const existingMatch = token.text.match(/^((?:!.*?!)*)(o)?(?:(\{.*?\})?)?(.*)$/);
                 const existingDecorations = existingMatch?.[1] || '';
                 const coreToken = existingMatch?.[4] || token.text;
-                const coreTokenNoDir = coreToken.replace(/[\d\/]+$/, '');
-
-                const isThisInstrument = coreTokenNoDir.includes(instrument.baseChar) ||
-                    coreTokenNoDir.includes(instrument.altChar);
+                const coreTokenNoDir = coreToken.replace(/([\d\/]+)$/, '');
+                const tokenPitch = coreTokenNoDir.match(/[\^=_]*[A-Ga-g][,']*/)?.[0];
+                const isThisInstrument = tokenPitch === instrument.baseChar || tokenPitch === instrument.altChar;
 
                 if (isThisInstrument) {
-                    // REPLACE: It's currently a snare/hihat, and we are changing its state
-                    newTokenText = noteStr + durationPart;
-
-                    if (existingDecorations && !noteStr.startsWith(existingDecorations)) {
-                        // FIX: Strip ALL specific decorations from the old string so we don't double up
-                        let cleanExisting = existingDecorations;
-                        def.decorations.forEach(dec => {
-                            cleanExisting = cleanExisting.replace(new RegExp(escapeRegExp(dec.abc), 'g'), '');
-                        });
-
-                        // If noteStr has decorations (e.g. !>!), prepend the clean existing ones
-                        if (noteStr.match(/^!.*?!/)) {
-                            newTokenText = cleanExisting + noteStr + durationPart;
-                        } else {
-                            newTokenText = cleanExisting + noteStr + durationPart;
-                        }
-                    }
+                    let cleanExisting = existingDecorations;
+                    def.decorations.forEach(dec => {
+                        cleanExisting = cleanExisting.replace(new RegExp(escapeRegExp(dec.abc), 'g'), '');
+                    });
+                    newTokenText = cleanExisting + noteStr + durationPart;
                 } else {
-                    // MERGE
                     let combinedDecorations = existingDecorations;
                     if (newDecorations && !combinedDecorations.includes(newDecorations)) combinedDecorations += newDecorations;
-
                     const combinedOpen = newOpenPrefix || existingMatch?.[2] || '';
                     const combinedGrace = newGrace || existingMatch?.[3] || '';
-
                     newTokenText = `${combinedDecorations}${combinedOpen}${combinedGrace}[${innerNote}${coreTokenNoDir}]${durationPart}`;
                 }
             }
         }
 
-        // 5. Rebuild bar
         let newBar = '';
         currentTick = 0;
-
         for (let i = 0; i < tokens.length; i++) {
             if (currentTick > 0 && currentTick % 4 === 0) {
                 newBar += ' ';
