@@ -9,18 +9,26 @@ interface OptimizableToken {
 }
 
 export class DurationManager {
-    private ticksPerL: number = 2; // Default for L:1/8
+    private ticksPerL: number = 4; // Default for L:1/8 (now 4 ticks per 1/8 note instead of 2)
 
     updateHeaderConfig(content: string) {
         const match = content.match(/^L:\s*(1\/\d+|1)/m);
         const lValue = match ? match[1] : "1/8";
 
+        // We want base resolution to be 1/32 note = 1 tick
+        // So 1/8 note = 4 ticks
         if (lValue === "1") {
-            this.ticksPerL = 16;
+            this.ticksPerL = 32;
         } else {
             const parts = lValue.split('/');
             const den = parseInt(parts[1]) || 1;
-            this.ticksPerL = 16 / den;
+            // 32 ticks per bar (assuming 4/4) -> 1/8 is 4 ticks.
+            // Formula: (32 / den) * (den of L value relative to whole note)
+            // Simpler: 1/8 = 4 ticks.
+            // 1/1 = 32 ticks
+            // 1/4 = 8 ticks
+            // 1/16 = 2 ticks
+            this.ticksPerL = 32 / den;
         }
     }
 
@@ -53,7 +61,7 @@ export class DurationManager {
         if (amount === 1.5) return "3/2";
         // General fraction handling for other cases
         const tolerance = 0.0001;
-        for (const den of [2, 4, 8, 16]) {
+        for (const den of [2, 4, 8, 16, 32]) {
             const num = Math.round(amount * den);
             if (Math.abs(num / den - amount) < tolerance) {
                 if (num === den) return "";
@@ -69,11 +77,11 @@ export class DurationManager {
      * 2. Consecutive rests are merged into single rest tokens
      * 3. Empty beats become single beat-length rests
      * 
-     * @param tokens Array of tokens with tick positions (0-15 for 16th note grid)
+     * @param tokens Array of tokens with tick positions (0-31 for 32nd note grid)
      * @returns Optimized array of tokens with recalculated durations
      */
     optimizeBarDurations(tokens: OptimizableToken[]): OptimizableToken[] {
-        // Build a sparse 16-slot map: which slots have notes?
+        // Build a sparse 32-slot map: which slots have notes?
         const slotMap: Map<number, OptimizableToken> = new Map();
 
         for (const token of tokens) {
@@ -85,10 +93,11 @@ export class DurationManager {
 
         const optimized: OptimizableToken[] = [];
 
-        // Process each beat (4 beats, 4 ticks each)
+        // Process each beat (4 beats, 8 ticks each for 32nd notes)
+        // 4/4 time assumed: 4 beats * 8 ticks = 32 ticks total
         for (let beatIdx = 0; beatIdx < 4; beatIdx++) {
-            const beatStart = beatIdx * 4;
-            const beatEnd = beatStart + 4;
+            const beatStart = beatIdx * 8;
+            const beatEnd = beatStart + 8;
 
             // Find all notes in this beat
             const notesInBeat: { pos: number; token: OptimizableToken }[] = [];
@@ -103,7 +112,7 @@ export class DurationManager {
                 optimized.push({
                     tickPosition: beatStart,
                     notes: [],
-                    duration: 4, // Whole beat
+                    duration: 8, // Whole beat (8 ticks)
                     decorations: '',
                     graceNote: '',
                     openPrefix: ''

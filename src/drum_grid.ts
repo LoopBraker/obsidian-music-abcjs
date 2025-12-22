@@ -431,9 +431,9 @@ export class DrumGrid {
     }
 
     // Generic parser for grouped instruments
-    // Returns: { char: string, state: HiHatState }[][] for 16 ticks
+    // Returns: { char: string, state: HiHatState }[][] for 32 ticks
     private parseBarToStateGrid(barText: string, instrument: GroupedInstrument): NoteState[] {
-        const grid: NoteState[] = Array(16).fill(null);
+        const grid: NoteState[] = Array(32).fill(null);
         const tokens = this.parseBarToTokens(barText); // Reuse our unified parser
 
         const def = instrument.def;
@@ -442,7 +442,7 @@ export class DrumGrid {
         let currentTick = 0;
         for (const token of tokens) {
             const tickIdx = Math.round(currentTick);
-            if (tickIdx >= 16) break;
+            if (tickIdx >= 32) break;
 
             // Check if this token contains our instrument's base or alt char
             const hasBaseChar = token.notes.includes(instrument.baseChar);
@@ -573,19 +573,23 @@ export class DrumGrid {
 
     private getDecorationIconAtTick(barText: string, tickIndex: number, def: DrumGroupDefinition): string {
         // Quick tokenizer to find the token at this tick
+        // Use the same improved regex as parseBarToTokens (handling grace notes)
         const tokenRegex = /((?:!.*?!)*(?:\{[^}]+\})?(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
         let currentTick = 0;
         let match;
 
         while ((match = tokenRegex.exec(barText)) !== null) {
             const coreContent = match[1];
-            // Duration logic
-            let duration = 1;
             const durationStr = match[2];
-            if (durationStr === '/') duration = 0.5;
-            else if (durationStr && !durationStr.includes('/')) duration = parseInt(durationStr);
-            if (coreContent.startsWith('"')) duration = 0;
-            const ticks = (duration === 0 && coreContent.startsWith('"')) ? 0 : (Math.round(duration) || 1);
+
+            let durationTicks = 0;
+            if (coreContent.startsWith('"')) {
+                durationTicks = 0;
+            } else {
+                durationTicks = this.durationManager.abcDurationToTicks(durationStr);
+            }
+
+            const ticks = Math.round(durationTicks);
 
             if (currentTick <= tickIndex && (currentTick + ticks) > tickIndex) {
                 // Found the token. Find which decoration matches.
@@ -605,7 +609,7 @@ export class DrumGrid {
             return;
         }
 
-        const cellWidth = 28;
+        const cellWidth = 20;
         const cellHeight = 32;
         const labelWidth = 90;
         const beatGroupGap = 2; // Gap between beat groups
@@ -703,7 +707,13 @@ export class DrumGrid {
         headerGridArea.style.gap = `${beatGroupGap}px`; // Apply the gap HERE, not on the parent
 
         // 4 beat groups
-        const beatLabels = [['1', 'e', '&', 'a'], ['2', 'e', '&', 'a'], ['3', 'e', '&', 'a'], ['4', 'e', '&', 'a']];
+        // 4 beat groups with 8 slots each (aligning with 32nd notes)
+        const beatLabels = [
+            ['1', '', 'e', '', '&', '', 'a', ''],
+            ['2', '', 'e', '', '&', '', 'a', ''],
+            ['3', '', 'e', '', '&', '', 'a', ''],
+            ['4', '', 'e', '', '&', '', 'a', '']
+        ];
         beatLabels.forEach((group) => {
             const beatGroup = headerRow.createDiv({ cls: 'abc-drum-beat-group' });
             beatGroup.style.display = 'flex';
@@ -781,9 +791,11 @@ export class DrumGrid {
                 hLine.style.borderTop = '1px dashed var(--background-modifier-border)';
                 hLine.style.pointerEvents = 'none';
 
-                // 4 steps per beat group
-                for (let stepIdx = 0; stepIdx < 4; stepIdx++) {
-                    const globalStep = beatIdx * 4 + stepIdx;
+                // 8 steps per beat group (for 32nd notes)
+                for (let stepIdx = 0; stepIdx < 8; stepIdx++) {
+                    const globalStep = beatIdx * 8 + stepIdx;
+                    const is16thNotePosition = stepIdx % 2 === 0;
+
                     const stepContainer = beatGroup.createDiv({ cls: 'abc-drum-step' });
                     stepContainer.style.width = `${cellWidth}px`;
                     stepContainer.style.height = '100%';
@@ -797,20 +809,30 @@ export class DrumGrid {
                     const vLine = stepContainer.createDiv({ cls: 'abc-drum-v-line' });
                     vLine.style.position = 'absolute';
                     vLine.style.left = '50%';
-                    vLine.style.top = '0';
-                    vLine.style.bottom = '0';
                     vLine.style.width = '1px';
                     vLine.style.borderLeft = '1px dashed var(--background-modifier-border)';
                     vLine.style.pointerEvents = 'none';
+
+                    // Visual differentiation: 16th notes get full lines, 32nd notes get shorter centered lines
+                    if (is16thNotePosition) {
+                        vLine.style.top = '0';
+                        vLine.style.bottom = '0';
+                    } else {
+                        vLine.style.top = '30%';
+                        vLine.style.bottom = '30%';
+                    }
 
                     if (instrumentRow.type === 'grouped' && stateGrid) {
                         // Grouped hi-hat rendering
                         const state = stateGrid[globalStep];
                         if (state) {
                             const diamond = stepContainer.createDiv({ cls: 'abc-drum-diamond' });
-                            // styling...
-                            diamond.style.width = '14px';
-                            diamond.style.height = '14px';
+
+                            // Smaller diamond for 32nd notes if desired, or uniform
+                            const diamSize = is16thNotePosition ? '14px' : '10px';
+                            diamond.style.width = diamSize;
+                            diamond.style.height = diamSize;
+
                             diamond.style.backgroundColor = 'var(--text-normal)';
                             diamond.style.transform = 'rotate(45deg)';
                             diamond.style.display = 'flex';
@@ -820,7 +842,7 @@ export class DrumGrid {
                             // Indicator Logic
                             const indicator = diamond.createDiv({ cls: 'abc-drum-diamond-indicator' });
                             indicator.style.transform = 'rotate(-45deg)';
-                            indicator.style.fontSize = '10px';
+                            indicator.style.fontSize = is16thNotePosition ? '10px' : '8px';
                             indicator.style.fontWeight = 'bold';
                             indicator.style.color = 'var(--background-primary)';
                             indicator.style.lineHeight = '1';
@@ -830,32 +852,16 @@ export class DrumGrid {
 
                             if (state === 'alt') {
                                 indicator.innerText = def.alts[0].icon; // e.g., '○' or 'x'
-                                if (def.alts[0].icon === 'x') indicator.style.fontSize = '12px';
+                                if (def.alts[0].icon === 'x') indicator.style.fontSize = is16thNotePosition ? '12px' : '10px';
                             }
                             else if (state === 'decoration') {
-                                // FIX: We know it's a decoration, but which one?
-                                // We need to check the grid source or helper. 
-                                // Since parseBarToStateGrid only returned the enum, we do a quick check on the BAR text logic or 
-                                // simpler: we check which decoration matches the currently applied note in the text?
-                                // Actually, simpler: The parseBarToStateGrid logic determined it was a decoration.
-                                // But here we don't have the token text easily. 
-
-                                // OPTIMIZATION: To avoid re-parsing, let's look at the parsedNotes (which has the chars). 
-                                // But parsedNotes doesn't have decorations.
-
-                                // Reliable fallback: Re-extract decoration from the bar for this specific tick.
-                                // Or, simpler: We accept that render might need to peek at the bar again, 
-                                // but simpler is to update parseBarToStateGrid to return the OBJECT, not just string?
-                                // No, let's keep it consistent.
-
-                                // Let's use a helper method to find the icon:
                                 const icon = this.getDecorationIconAtTick(this.currentBar, globalStep, def);
                                 indicator.innerText = icon;
                                 if (icon.length > 1) indicator.style.fontSize = '8px';
                             }
                             else if (state === 'flam') {
                                 indicator.innerText = '♪';
-                                indicator.style.fontSize = '10px';
+                                indicator.style.fontSize = is16thNotePosition ? '10px' : '8px';
                                 indicator.style.marginLeft = '-2px';
                             }
 
@@ -876,8 +882,11 @@ export class DrumGrid {
                         const isActive = parsedNotes[globalStep] && parsedNotes[globalStep].includes(instrumentRow.char);
                         if (isActive) {
                             const diamond = stepContainer.createDiv({ cls: 'abc-drum-diamond' });
-                            diamond.style.width = '14px';
-                            diamond.style.height = '14px';
+
+                            const diamSize = is16thNotePosition ? '14px' : '10px';
+                            diamond.style.width = diamSize;
+                            diamond.style.height = diamSize;
+
                             diamond.style.backgroundColor = 'var(--text-normal)';
                             diamond.style.transform = 'rotate(45deg)';
                             diamond.style.zIndex = '1';
@@ -967,7 +976,8 @@ export class DrumGrid {
 
     private parseBarToTokens(barText: string): Token[] {
         const tokens: Token[] = [];
-        const tokenRegex = /((?:!.*?!)*(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
+        // Fixed Regex: Added (?:\{[^}]+\})? to match grace notes prefix (flams)
+        const tokenRegex = /((?:!.*?!)*(?:\{[^}]+\})?(?:\[[^\]]+\]|[\^=_]*[A-Ga-g][,']*)|z|Z|x|X|"[^"]*")([\d\/]*)/g;
 
         let match;
         while ((match = tokenRegex.exec(barText)) !== null) {
@@ -990,6 +1000,10 @@ export class DrumGrid {
             if (!coreContent.toLowerCase().startsWith('z') && !coreContent.toLowerCase().startsWith('x') && !coreContent.startsWith('"')) {
                 let cleanContent = coreContent.replace(/!.*?!/g, '');
                 let inner = cleanContent.replace(/[\[\]]/g, "");
+
+                // Remove grace notes from note parsing logic so they don't count as grid notes
+                inner = inner.replace(/\{[^}]+\}/g, "");
+
                 const notePattern = /([\^=_]?[A-Ga-g][,']*)/g;
                 let noteMatch;
                 while ((noteMatch = notePattern.exec(inner)) !== null) {
@@ -1004,17 +1018,17 @@ export class DrumGrid {
         return tokens;
     }
 
-    // Convert current bar string into 16 time slots using tokens
+    // Convert current bar string into 32 time slots using tokens
     private parseBarToGrid(barText: string): string[][] {
         const tokens = this.parseBarToTokens(barText);
-        const grid: string[][] = Array(16).fill(null).map(() => []);
+        const grid: string[][] = Array(32).fill(null).map(() => []);
 
         let currentTick = 0;
         for (const token of tokens) {
             // Use Math.round to ensure fractional ticks (like 0.5) align to the nearest grid step
             const tickIdx = Math.round(currentTick);
 
-            if (tickIdx >= 16) break;
+            if (tickIdx >= 32) break;
 
             if (token.notes.length > 0) {
                 for (const note of token.notes) {
@@ -1043,9 +1057,9 @@ export class DrumGrid {
             // Allow 0 duration for quoted annotations
             const tokenDur = (token.text.startsWith('"')) ? 0 : (Math.round(token.duration) || 1);
 
-            // Add space before this token if we're at a beat boundary (every 4 ticks)
+            // Add space before this token if we're at a beat boundary (every 8 ticks)
             // and this isn't the first token
-            if (currentTick > 0 && currentTick % 4 === 0) {
+            if (currentTick > 0 && currentTick % 8 === 0) {
                 result += " ";
             }
 
@@ -1070,10 +1084,6 @@ export class DrumGrid {
         return result;
     }
 
-    /**
-     * Build a 16-slot grid from parsed tokens, extracting note positions and metadata.
-     * This is used as input for the duration optimizer.
-     */
     private buildOptimizableGrid(tokens: Token[]): OptimizableToken[] {
         const result: OptimizableToken[] = [];
         let currentTick = 0;
@@ -1083,7 +1093,7 @@ export class DrumGrid {
             if (token.text.startsWith('"')) continue;
 
             const tickIdx = Math.round(currentTick);
-            if (tickIdx >= 16) break;
+            if (tickIdx >= 32) break;
 
             // Extract decorations, grace notes, open prefix from token text
             const prefixMatch = token.text.match(/^((?:!.*?!)*)(o)?(\{[^}]+\})?(.*)$/);
@@ -1116,7 +1126,7 @@ export class DrumGrid {
         const beats: string[] = ['', '', '', ''];
 
         for (const token of tokens) {
-            const beatIdx = Math.floor(token.tickPosition / 4);
+            const beatIdx = Math.floor(token.tickPosition / 8);
             if (beatIdx >= 4) continue;
 
             // Get the duration suffix
