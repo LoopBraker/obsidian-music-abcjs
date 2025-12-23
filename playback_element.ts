@@ -258,19 +258,14 @@ export class PlaybackElement extends MarkdownRenderChild {
     const animationOptions: AnimationOptions = {
       eventCallback: (event: any) => {
         if (!event) {
-          this.isPlaying = false;
-          this.playPauseButton.innerHTML = '▶';
-          this.playPauseButton.setAttribute('aria-label', 'Play');
-          togglePlayingHighlight(this.el)(false);
-
-          // Clear any remaining note highlights
-          const selected = Array.from(this.el.querySelectorAll(".abcjs-highlight"));
-          selected.forEach(el => el.classList.remove("abcjs-highlight"));
-          return;
+          if (!this.loopEnabled) {
+            this.isPlaying = false;
+            this.playPauseButton.innerHTML = '▶';
+            this.playPauseButton.setAttribute('aria-label', 'Play');
+            togglePlayingHighlight(this.el)(false);
+          }
+          return undefined; // Explicitly return undefined
         }
-
-        // 2. Existing logic for highlighting notes
-        if (event.measureStart && event.left === null) return undefined;
 
         const selected = Array.from(this.el.querySelectorAll(".abcjs-highlight"));
         selected.forEach(el => el.classList.remove("abcjs-highlight"));
@@ -278,47 +273,19 @@ export class PlaybackElement extends MarkdownRenderChild {
         if (event.elements) {
           event.elements.flat().forEach((el: Element) => el.classList.add("abcjs-highlight"));
         }
-        return undefined;
+        return undefined; // Explicitly return undefined
       },
       beatCallback: (beatNumber: number, totalBeats: number, totalTime: number) => {
-        // Check if loop is enabled and we need to loop back
-        if (!this.loopEnabled || !this.loopStartInput || !this.loopEndInput) return;
+        const loop = this.getLoopTimings();
+        if (!loop) return;
 
-        let loopStart = parseInt(this.loopStartInput.value);
-        const loopEnd = parseInt(this.loopEndInput.value);
+        // Calculate current progress as a percentage
+        const currentPercent = (beatNumber / totalBeats);
 
-        if (isNaN(loopStart) || isNaN(loopEnd) || loopStart < 1 || loopEnd < loopStart) return;
-
-        // Subtract 1 from user's LS input
-        loopStart = loopStart - 1;
-
-        // Adjust loop values: user inputs measure numbers, we need to subtract 1
-        // So if user wants to loop measures 2-3, we calculate as if they entered 1-2
-        const adjustedLoopStart = loopStart - 1;
-        const adjustedLoopEnd = loopEnd - 1;
-
-        // Calculate the beat number for loop end
-        const loopEndBeat = (adjustedLoopEnd + 1) * this.beatsPerMeasure;
-
-        // If we've reached the end of the LE measure, jump back to loop start
-        if (beatNumber >= loopEndBeat) {
-          const totalTimeMs = (this.visualObj?.getTotalTime() || 0) * 1000;
-
-          if (totalTimeMs > 0 && this.timingCallbacks && this.timingCallbacks.noteTimings) {
-            // Find the timing for the first note/event in the loop start measure
-            // Use the original loopStart (user's measure number)
-            const startTiming = this.timingCallbacks.noteTimings.find(
-              timing => timing.measureStart && timing.measureNumber === loopStart
-            );
-
-            if (startTiming) {
-              const startPosition = startTiming.milliseconds / totalTimeMs;
-              console.log(`Looping: beat ${beatNumber} -> measure ${loopStart} (${startTiming.milliseconds}ms, ${(startPosition * 100).toFixed(1)}%)`);
-
-              this.midiBuffer.seek(startPosition);
-              this.timingCallbacks.setProgress(startPosition);
-            }
-          }
+        // If we've passed the end of the loop range
+        if (currentPercent >= loop.endPercent) {
+          this.midiBuffer.seek(loop.startPercent);
+          this.timingCallbacks?.setProgress(loop.startPercent);
         }
       }
     };
@@ -388,8 +355,6 @@ export class PlaybackElement extends MarkdownRenderChild {
     }
   }
 
-
-
   private addDraggingAndLoopToggles() {
     // Create wrapper container for all bottom controls
     const bottomControlsWrapper = this.el.createDiv({ cls: 'abcjs-bottom-controls-wrapper' });
@@ -449,6 +414,29 @@ export class PlaybackElement extends MarkdownRenderChild {
     this.loopEnabled = this.loopCheckbox.checked;
     console.log('Loop', this.loopEnabled ? 'enabled' : 'disabled');
   };
+
+  private getLoopTimings() {
+    if (!this.loopEnabled || !this.visualObj || !this.timingCallbacks?.noteTimings) return null;
+
+    const startMeasure = parseInt(this.loopStartInput.value) - 1;
+    const endMeasure = parseInt(this.loopEndInput.value) - 1;
+    const totalTimeMs = (this.visualObj.getTotalTime() || 0) * 1000;
+
+    if (isNaN(startMeasure) || isNaN(endMeasure) || startMeasure < 0 || endMeasure < startMeasure) return null;
+
+    const startTiming = this.timingCallbacks.noteTimings.find(t => t.measureNumber === startMeasure);
+    // Find the start of the measure AFTER the end measure to know when to loop back
+    const endTiming = this.timingCallbacks.noteTimings.find(t => t.measureNumber === endMeasure + 1);
+
+    if (startTiming && totalTimeMs > 0) {
+      return {
+        startPercent: startTiming.milliseconds / totalTimeMs,
+        // If we can't find the "next" measure, we loop at the very end (percent 1.0)
+        endPercent: endTiming ? endTiming.milliseconds / totalTimeMs : 1.0
+      };
+    }
+    return null;
+  }
 
   private highlightNotesInRange(startChar: number, endChar: number): void {
     console.log('highlightNotesInRange called:', startChar, endChar);
@@ -783,31 +771,22 @@ export class PlaybackElement extends MarkdownRenderChild {
 
   private reRender() {
     const abcSource = this.noteEditor.getSource();
-
-    // Update dragging state based on source
     this.draggingEnabled = abcSource.includes('%%allowDrag');
-
     const { userOptions } = this.parseOptionsAndSource();
 
-    // CRITICAL FIX: Reuse the existing wrapper instead of destroying it
-    // abcjs handles clearing the innerHTML automatically during render
-    // Removing and recreating causes a race condition where the browser hasn't
-    // finished layout calculations, leading to empty elemset arrays
+    // --- 1. SAVE CURRENT STATE BEFORE WE DESTROY ANYTHING ---
+    const wasPlaying = this.isPlaying;
+    // Get current position in milliseconds before stopping
+    const currentMs = this.timingCallbacks ? this.timingCallbacks.currentMillisecond() : 0;
+
     if (!this.sheetWrapper) {
-      // Only create on first render
       this.sheetWrapper = document.createElement('div');
       this.sheetWrapper.addClass('abcjs-sheet-wrapper');
-
       const buttonsContainer = this.el.querySelector('.abcjs-controls');
-      if (buttonsContainer) {
-        this.el.insertBefore(this.sheetWrapper, buttonsContainer);
-      } else {
-        this.el.appendChild(this.sheetWrapper);
-      }
+      if (buttonsContainer) this.el.insertBefore(this.sheetWrapper, buttonsContainer);
+      else this.el.appendChild(this.sheetWrapper);
     }
 
-    // Create fresh options with clickListener to force elemset population
-    // Use a new object to ensure abcjs doesn't carry over stale state
     const options = {
       ...DEFAULT_OPTIONS,
       ...userOptions,
@@ -816,69 +795,43 @@ export class PlaybackElement extends MarkdownRenderChild {
       clickListener: this.handleElementClick
     };
 
-    // Render into the STABLE container
-    // renderAbc will automatically clear the contents of sheetWrapper
     const renderResp = renderAbc(this.sheetWrapper, abcSource, options);
-
-    // Restore checkbox state from source
-    if (this.draggingCheckbox) {
-      this.draggingCheckbox.checked = this.draggingEnabled;
-    }
-
     this.visualObj = renderResp[0];
 
-    // Re-extract tune metrics and ensure timings are calculated FIRST
     if (this.visualObj) {
-      // Ensure timing information is calculated
       this.visualObj.setTiming();
-
       this.beatsPerMeasure = this.visualObj.getBeatsPerMeasure();
       this.totalBeats = this.visualObj.getTotalBeats();
       this.totalMeasures = Math.ceil(this.totalBeats / this.beatsPerMeasure);
 
-      // Update loop input max values
-      if (this.loopStartInput && this.totalMeasures > 0) {
-        this.loopStartInput.setAttribute('max', this.totalMeasures.toString());
-      }
-      if (this.loopEndInput && this.totalMeasures > 0) {
-        this.loopEndInput.setAttribute('max', this.totalMeasures.toString());
-        this.loopEndInput.setAttribute('placeholder', String(this.totalMeasures));
-      }
-
-      // Now that visualObj is ready with timing, update editor button and callbacks
       this.updateEditorButtonState();
       this.updateEditorCallbacks();
     }
 
-    // Update audio
+    // Update audio engine
     if (this.visualObj) {
       const { userOptions } = this.parseOptionsAndSource();
       const audioParamsFromUser: Record<string, any> = {};
       const knownAudioKeys = ['swing', 'chordsOff'];
-
       for (const key of knownAudioKeys) {
-        if (userOptions.hasOwnProperty(key)) {
-          audioParamsFromUser[key] = userOptions[key];
-        }
+        if (userOptions.hasOwnProperty(key)) audioParamsFromUser[key] = userOptions[key];
       }
 
       const finalAudioParams: SynthOptions = { ...AUDIO_PARAMS, ...audioParamsFromUser };
-      // Create animation options for the new visual object
+
+      // Define animation options (using the fix from previous prompt)
       const animationOptions: AnimationOptions = {
         eventCallback: (event: any) => {
           if (!event) {
-            this.isPlaying = false;
-            this.playPauseButton.innerHTML = '▶';
-            this.playPauseButton.setAttribute('aria-label', 'Play');
-            togglePlayingHighlight(this.el)(false);
-
-            const selected = Array.from(this.el.querySelectorAll(".abcjs-highlight"));
-            selected.forEach(el => el.classList.remove("abcjs-highlight"));
-            return;
+            // Hot update logic: only stop the UI if we aren't looping
+            if (!this.loopEnabled) {
+              this.isPlaying = false;
+              this.playPauseButton.innerHTML = '▶';
+              this.playPauseButton.setAttribute('aria-label', 'Play');
+              togglePlayingHighlight(this.el)(false);
+            }
+            return undefined; // Explicitly return undefined
           }
-
-          // 2. Normal highlight logic
-          if (event.measureStart && event.left === null) return undefined;
 
           const selected = Array.from(this.el.querySelectorAll(".abcjs-highlight"));
           selected.forEach(el => el.classList.remove("abcjs-highlight"));
@@ -886,56 +839,52 @@ export class PlaybackElement extends MarkdownRenderChild {
           if (event.elements) {
             event.elements.flat().forEach((el: Element) => el.classList.add("abcjs-highlight"));
           }
-          return undefined;
+          return undefined; // Explicitly return undefined
         },
         beatCallback: (beatNumber: number, totalBeats: number, totalTime: number) => {
-          // Check if loop is enabled and we need to loop back
-          if (!this.loopEnabled || !this.loopStartInput || !this.loopEndInput) return;
+          const loop = this.getLoopTimings();
+          if (!loop) return;
 
-          let loopStart = parseInt(this.loopStartInput.value);
-          const loopEnd = parseInt(this.loopEndInput.value);
+          // Calculate current progress as a percentage
+          const currentPercent = (beatNumber / totalBeats);
 
-          if (isNaN(loopStart) || isNaN(loopEnd) || loopStart < 1 || loopEnd < loopStart) return;
-
-          // Subtract 1 from user's LS input
-          loopStart = loopStart - 1;
-
-          // Adjust loop values: user inputs measure numbers, we need to subtract 1
-          // So if user wants to loop measures 2-3, we calculate as if they entered 1-2
-          const adjustedLoopStart = loopStart - 1;
-          const adjustedLoopEnd = loopEnd - 1;
-
-          // Calculate the beat number for loop end
-          const loopEndBeat = (adjustedLoopEnd + 1) * this.beatsPerMeasure;
-
-          // If we've reached the end of the LE measure, jump back to loop start
-          if (beatNumber >= loopEndBeat) {
-            const totalTimeMs = (this.visualObj?.getTotalTime() || 0) * 1000;
-
-            if (totalTimeMs > 0 && this.timingCallbacks && this.timingCallbacks.noteTimings) {
-              // Find the timing for the first note/event in the loop start measure
-              // Use the original loopStart (user's measure number)
-              const startTiming = this.timingCallbacks.noteTimings.find(
-                timing => timing.measureStart && timing.measureNumber === loopStart
-              );
-
-              if (startTiming) {
-                const startPosition = startTiming.milliseconds / totalTimeMs;
-                console.log(`Looping: beat ${beatNumber} -> measure ${loopStart} (${startTiming.milliseconds}ms, ${(startPosition * 100).toFixed(1)}%)`);
-
-                this.midiBuffer.seek(startPosition);
-                this.timingCallbacks.setProgress(startPosition);
-              }
-            }
+          // If we've passed the end of the loop range
+          if (currentPercent >= loop.endPercent) {
+            this.midiBuffer.seek(loop.startPercent);
+            this.timingCallbacks?.setProgress(loop.startPercent);
           }
         }
       };
 
+      // Stop old audio/visual components before starting new ones
+      this.timingCallbacks?.stop();
+      this.midiBuffer.stop();
+
       this.midiBuffer.init({ visualObj: this.visualObj, options: finalAudioParams })
         .then(() => {
-          // Re-initialize timing callbacks with the new visual object
           this.timingCallbacks = new TimingCallbacks(this.visualObj!, animationOptions);
           return this.midiBuffer.prime();
+        })
+        .then(() => {
+          // --- 2. RESTORE PLAYBACK STATE ---
+          if (wasPlaying) {
+            const totalTimeSec = this.visualObj?.getTotalTime() || 0;
+            const seekPos = currentMs / (totalTimeSec * 1000);
+
+            // Ensure the UI shows we are playing
+            this.isPlaying = true;
+            this.playPauseButton.innerHTML = '❚❚';
+            togglePlayingHighlight(this.el)(true);
+
+            // Start engine and jump to saved position
+            this.midiBuffer.start();
+            this.timingCallbacks?.start();
+
+            if (seekPos > 0 && seekPos < 1) {
+              this.midiBuffer.seek(seekPos);
+              this.timingCallbacks?.setProgress(seekPos);
+            }
+          }
         })
         .catch(console.warn.bind(console));
     }
