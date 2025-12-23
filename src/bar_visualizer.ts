@@ -14,23 +14,16 @@ export class BarVisualizer {
         this.container.style.flexDirection = 'column';
         this.container.style.gap = '0.3em';
 
-        // Header for info
         const header = this.container.createDiv({ cls: 'abc-bar-info' });
         header.style.fontSize = '0.6em';
         header.style.color = 'var(--text-muted)';
         header.style.fontFamily = 'sans-serif';
-        // Height matching font size? 
-        // User said: "height should be as the height of the font above it, i mean the font of the text 'Time:...'"
-        // Font size is 0.8em. Let's assume approx 14px or use '1em' relative to this container.
 
-        // Container for the visual bars
         this.barContainer = this.container.createDiv({ cls: 'abc-bar-visuals' });
         this.barContainer.style.display = 'flex';
         this.barContainer.style.gap = '2px';
-        this.barContainer.style.height = '0.8em'; // Match font height roughly (0.8em * 1.5 line height approx?) or just use same size
+        this.barContainer.style.height = '0.8em';
         this.barContainer.style.width = '100%';
-        // Background removed or transparent? User didn't specify container bg, just rectangles.
-        // But previously it had bg. Let's keep it clean.
     }
 
     update(content: string, cursor: number) {
@@ -46,11 +39,7 @@ export class BarVisualizer {
         } else {
             const mSymbolMatch = content.match(/^M:\s*([C|])/m);
             if (mSymbolMatch) {
-                if (mSymbolMatch[1] === 'C') {
-                    this.timeSignature = { num: 4, den: 4 };
-                } else if (mSymbolMatch[1] === '|') {
-                    this.timeSignature = { num: 2, den: 2 };
-                }
+                this.timeSignature = mSymbolMatch[1] === 'C' ? { num: 4, den: 4 } : { num: 2, den: 2 };
             }
         }
 
@@ -70,127 +59,109 @@ export class BarVisualizer {
         const lineEnd = nextNewline === -1 ? content.length : cursor + nextNewline;
 
         const currentLine = content.substring(lineStart, lineEnd).trim();
-
-        if (currentLine.startsWith('%') || currentLine.startsWith('%%') || currentLine.startsWith('w:') || /^[A-Z]:/.test(currentLine)) {
-            return '';
-        }
+        if (currentLine.startsWith('%') || currentLine.startsWith('w:') || /^[A-Z]:/.test(currentLine)) return '';
 
         const barSeparator = /\||::/;
-
         const lastPipe = beforeCursor.lastIndexOf('|');
         const lastDoubleColon = beforeCursor.lastIndexOf('::');
 
-        let start = -1;
-        let delimiterLength = 1;
-
-        if (lastPipe > -1 || lastDoubleColon > -1) {
-            if (lastPipe > lastDoubleColon) {
-                start = lastPipe;
-                delimiterLength = 1;
-            } else {
-                start = lastDoubleColon;
-                delimiterLength = 2;
-            }
-        }
-
-        if (lastNewline > start) {
-            start = lastNewline;
-            delimiterLength = 1;
-        }
+        let start = Math.max(lastNewline, lastPipe, lastDoubleColon);
+        let delimiterLength = (start === lastDoubleColon && start !== lastNewline) ? 2 : 1;
+        if (start === -1) { start = 0; delimiterLength = 0; }
 
         let end = afterCursor.search(barSeparator);
-
         if (end === -1) end = afterCursor.length;
         if (nextNewline !== -1 && nextNewline < end) end = nextNewline;
 
-        const barContent = (beforeCursor.substring(start + delimiterLength) + afterCursor.substring(0, end)).trim();
-        return barContent;
+        return (beforeCursor.substring(start + delimiterLength) + afterCursor.substring(0, end)).trim();
     }
 
-    private parseNoteDuration(note: string): number {
-        const durationMatch = note.match(/(\d+)?(\/+)(\d+)?|(\d+)/);
-        let multiplier = 1;
-
-        if (durationMatch) {
-            if (durationMatch[4]) {
-                multiplier = parseInt(durationMatch[4]);
-            } else {
-                const num = durationMatch[1] ? parseInt(durationMatch[1]) : 1;
-                const slashes = durationMatch[2] ? durationMatch[2].length : 0;
-                const den = durationMatch[3] ? parseInt(durationMatch[3]) : Math.pow(2, slashes);
-                multiplier = num / den;
-            }
+    // Helper to parse ABC duration strings into numbers
+    private getDur(durStr: string | undefined): number {
+        if (!durStr) return 1;
+        if (durStr.match(/^\d+$/)) return parseInt(durStr);
+        if (durStr.startsWith('/')) {
+            const slashes = (durStr.match(/\//g) || []).length;
+            const denStr = durStr.replace(/\//g, '');
+            const den = denStr ? parseInt(denStr) : Math.pow(2, slashes);
+            return 1 / den;
         }
-        return multiplier;
+        if (durStr.includes('/')) {
+            const parts = durStr.split('/');
+            const num = parts[0] ? parseInt(parts[0]) : 1;
+            const den = parts[1] ? parseInt(parts[1]) : 2;
+            return num / den;
+        }
+        return 1;
     }
 
     private calculateBarDuration(barContent: string): number {
-        let duration = 0;
-        let cleanBar = barContent.replace(/"[^"]*"/g, ''); // Remove text inside quotes
-        //Remove text inside curly brackets
-        cleanBar = cleanBar.replace(/\{.*?\}/g, '');
-        cleanBar = cleanBar.replace(/!.*?!/g, '');
-        cleanBar = cleanBar.replace(/\+.*?\+/g, '');
-        cleanBar = cleanBar.replace(/\[[A-Za-z]:.*?\]/g, '');
-        cleanBar = cleanBar.replace(/\[%%.*?\]/g, '');
-        cleanBar = cleanBar.replace(/%%.*/g, '');
+        let totalDuration = 0;
 
-        // Match chords [...]
-        // Strategy: First match the entire [...] block, then parse the first valid note inside
-        // to determine duration. This handles cases like [ngc] where invalid chars appear before notes.
+        // 1. Clean the bar
+        let cleanBar = barContent.replace(/"[^"]*"/g, '')
+            .replace(/\{.*?\}/g, '')
+            .replace(/!.*?!/g, '')
+            .replace(/\[[A-Za-z]:.*?\]/g, '')
+            .replace(/%%.*/g, '');
 
-        // Match any [...] block with optional outer duration
-        const chordRegex = /\[([^\]]*)\](\d+(?:\/\d*)?|\/+\d*)?/g;
+        // 2. Combined Regex to find:
+        // Group 1: Tuplets (e.g., "(3", "(3:2:3")
+        // Group 2: Chords (e.g., "[abc]2")
+        // Group 5: Notes/Rests (e.g., "A", "z/2")
+        const combinedRegex = /(\(\d+(?::\d+(?::\d+)?)?)|(\[([^\]]*)\](\d+(?:\/\d*)?|\/+\d*)?)|((?:[\^=_]*)?[A-Ga-gzZxX][,']*(\d+(?:\/\d*)?|\/+\d*)?)/g;
 
-        // Match individual notes (only A-G, a-g, and rests z/Z are valid)
-        // In ABC notation: accidentals + note letter + octave markers + duration
-        const noteRegex = /(?:[\^=_]*)?[A-Ga-gzZxX][,']*(\d+(?:\/\d*)?|\/+\d*)?/g;
+        let tupletRemaining = 0;
+        let tupletFactor = 1;
 
-        let remaining = cleanBar;
+        let match;
+        while ((match = combinedRegex.exec(cleanBar)) !== null) {
+            const tupletMarker = match[1];
+            const chordFull = match[2];
+            const chordContent = match[3];
+            const chordOuterDur = match[4];
+            const noteFull = match[5];
+            const noteDur = match[6];
 
-        const getDur = (durStr: string) => {
-            if (!durStr) return 1;
-            if (durStr.match(/^\d+$/)) return parseInt(durStr);
-            if (durStr.startsWith('/')) {
-                const num = 1;
-                const slashes = durStr.match(/\//g)!.length;
-                const denStr = durStr.replace(/\//g, '');
-                const den = denStr ? parseInt(denStr) : Math.pow(2, slashes);
-                return num / den;
-            }
-            if (durStr.includes('/')) {
-                const parts = durStr.split('/');
-                const num = parts[0] ? parseInt(parts[0]) : 1;
-                const den = parts[1] ? parseInt(parts[1]) : 2;
-                return num / den;
-            }
-            return 1;
-        };
+            // Case A: Found a Tuplet Marker
+            if (tupletMarker) {
+                const parts = tupletMarker.substring(1).split(':');
+                const p = parseInt(parts[0]); // number of notes
+                // Default q (time units) based on ABC spec
+                let q = (p === 3 || p === 6 || p === 9) ? 2 : (p === 2 || p === 4 || p === 8) ? 3 : p;
+                if (parts[1]) q = parseInt(parts[1]);
+                let r = p; // how many notes are affected
+                if (parts[2]) r = parseInt(parts[2]);
 
-        // Process chords first
-        remaining = remaining.replace(chordRegex, (match, chordContent, outerDur) => {
-            // Find the first valid note inside the chord and check for duration AFTER it
-            // In ABC notation: accidentals + note letter + octave markers + duration
-            // Pattern: optional accidentals + note letter + octave markers + optional duration
-            const firstNoteMatch = chordContent.match(/(?:[\^=_]*)?[A-Ga-g][,']*(\d+(?:\/\d*)?|\/+\d*)?/);
-
-            let innerDur = 1;
-            if (firstNoteMatch && firstNoteMatch[1]) {
-                innerDur = getDur(firstNoteMatch[1]);
+                tupletRemaining = r;
+                tupletFactor = q / p; // e.g., (3 becomes 2/3
+                continue;
             }
 
-            const outerDurVal = outerDur ? getDur(outerDur) : 1;
-            duration += innerDur * outerDurVal;
-            return '';
-        });
+            let itemDuration = 0;
 
-        // Process remaining individual notes
-        remaining.replace(noteRegex, (match, dur) => {
-            duration += getDur(dur);
-            return '';
-        });
+            // Case B: Found a Chord
+            if (chordFull) {
+                const firstNoteMatch = chordContent.match(/(?:[\^=_]*)?[A-Ga-g][,']*(\d+(?:\/\d*)?|\/+\d*)?/);
+                const innerDur = firstNoteMatch ? this.getDur(firstNoteMatch[1]) : 1;
+                const outerDur = this.getDur(chordOuterDur);
+                itemDuration = innerDur * outerDur;
+            }
+            // Case C: Found a Note or Rest
+            else if (noteFull) {
+                itemDuration = this.getDur(noteDur);
+            }
 
-        return duration;
+            // Apply Tuplet logic if active
+            if (tupletRemaining > 0) {
+                totalDuration += (itemDuration * tupletFactor);
+                tupletRemaining--;
+            } else {
+                totalDuration += itemDuration;
+            }
+        }
+
+        return totalDuration;
     }
 
     private render(barContent: string) {
@@ -203,47 +174,24 @@ export class BarVisualizer {
         const lPerBlock = blockSize / lSize;
 
         let filledL = currentDurationInL;
-
-        // Determine Color
-        // 3rd button (Normal): #A89917 (Dark), #EFE600 (Light)
-        // 4th button (Full): #4CB014 (Dark), #00D300 (Light)
-        // 1st button (Overflow): #A62114 (Dark), #ff0000 (Light)
-
         const isDark = document.body.classList.contains('theme-dark');
-
         const normalColor = isDark ? '#A89917' : '#EFE600';
         const fullColor = isDark ? '#4CB014' : '#00D300';
         const overflowColor = isDark ? '#A62114' : '#ff0000';
 
-        // Calculate total capacity
         const totalCapacity = numRects * lPerBlock;
-
         let barColor = normalColor;
-        if (currentDurationInL >= totalCapacity) {
-            barColor = fullColor;
-        }
-        if (currentDurationInL > totalCapacity) {
-            barColor = overflowColor;
-        }
+        if (currentDurationInL >= totalCapacity - 0.01) barColor = fullColor;
+        if (currentDurationInL > totalCapacity + 0.01) barColor = overflowColor;
 
         for (let i = 0; i < numRects; i++) {
             const rect = this.barContainer.createDiv({ cls: 'abc-bar-rect' });
             rect.style.flex = '1';
             rect.style.backgroundColor = 'var(--background-primary)';
-            // Border matching chord buttons: 1px solid var(--background-modifier-border)
-            // But user said "border the same". Chord buttons use that variable.
-            // Wait, chord buttons use `var(--background-modifier-border)` for the button element?
-            // In `chord_button_bar.ts`: `btn.style.border = '1px solid var(--background-modifier-border)';`
-            // But the SVG buttons have internal rects.
-            // The user said "Each rectangle should have the same corner rounded as the button are, as well as the border the same."
-            // The modifier buttons have border. The chord buttons are SVGs.
-            // Assuming user means the modifier buttons style or the general "button" look.
-            // Let's use the modifier button style: border and radius.
-
             rect.style.border = '1px solid var(--background-modifier-border)';
-            rect.style.borderRadius = '4px'; // Same as modifier buttons
+            rect.style.borderRadius = '4px';
             rect.style.position = 'relative';
-            rect.style.overflow = 'hidden'; // For rounded corners on fill
+            rect.style.overflow = 'hidden';
 
             let fillAmount = 0;
             if (filledL >= lPerBlock) {
@@ -257,21 +205,14 @@ export class BarVisualizer {
             if (fillAmount > 0) {
                 const fill = rect.createDiv({ cls: 'abc-bar-fill' });
                 fill.style.position = 'absolute';
-                fill.style.left = '0';
-                fill.style.top = '0';
+                fill.style.left = '0'; fill.style.top = '0';
                 fill.style.height = '100%';
                 fill.style.width = `${fillAmount}%`;
                 fill.style.backgroundColor = barColor;
-                // Opacity? User didn't specify, but previous code had 0.6.
-                // "progress should take the color of rectangles".
-                // Let's use solid color or slight opacity to see grid?
-                // Previous was 0.6. Let's keep it or make it solid if it looks better.
-                // User said "take the color", implying exact match.
                 fill.style.opacity = '0.8';
             }
         }
 
-        // Update info text
         const info = this.container.querySelector('.abc-bar-info');
         if (info) {
             info.textContent = `Time: ${this.timeSignature.num}/${this.timeSignature.den} | Unit: 1/${Math.round(1 / this.unitNoteLength)} | Bar: ${currentDurationInL.toFixed(2)} L`;
