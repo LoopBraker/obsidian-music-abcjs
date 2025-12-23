@@ -590,21 +590,18 @@ export class PlaybackElement extends MarkdownRenderChild {
 
   // start again at the begining of the tune
   private readonly restartPlayback = () => {
-    // Clear any selected note
     this.selectedNoteStartTime = null;
-    const previousSelected = this.el.querySelector('.abcjs-selected-note');
-    if (previousSelected) {
-      previousSelected.classList.remove('abcjs-selected-note');
-    }
+
+    // REMOVE THE SELECTION CLASS
+    this.el.querySelectorAll('.abcjs-selected-note').forEach(e => e.classList.remove('abcjs-selected-note'));
 
     this.timingCallbacks?.stop();
     this.midiBuffer.stop();
-    // After stopping, we can immediately start again for a seamless restart
+
     if (this.isPlaying) {
       this.timingCallbacks?.start();
       this.midiBuffer.start();
     } else {
-      // If it was paused, just reset the cursor to the beginning
       this.timingCallbacks?.reset();
     }
   };
@@ -623,95 +620,47 @@ export class PlaybackElement extends MarkdownRenderChild {
 
     // Handle note/element clicks
     if (abcElem && (abcElem.el_type === 'note' || abcElem.el_type === 'rest')) {
-      console.log('Clicked element:', abcElem.el_type, 'at startChar:', abcElem.startChar, 'endChar:', abcElem.endChar);
 
-      // ALWAYS highlight in editor if open (regardless of playing state)
-      // Check for valid character positions (abcjs sometimes returns -1 for elements without source position)
-      if (abcElem.startChar !== undefined && abcElem.startChar >= 0 && abcElem.endChar !== undefined) {
-        const app = (window as any).app as App;
-        const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
-        console.log('Found editor leaves:', leaves.length);
-
-        if (leaves.length > 0) {
-          const view = leaves[0].view as AbcEditorView;
-          console.log('Editor view found, calling highlightRange');
-          view.highlightRange(abcElem.startChar, abcElem.endChar);
-        } else {
-          console.log('No editor view open');
-        }
-      } else {
-        console.log('Invalid character positions:', {
-          startChar: abcElem.startChar,
-          endChar: abcElem.endChar,
-          startDefined: abcElem.startChar !== undefined,
-          startValid: abcElem.startChar >= 0,
-          endDefined: abcElem.endChar !== undefined
-        });
-      }
-
-      // NEW FEATURE: Play the note sound when clicked (even when paused)
-      // This provides immediate audio feedback for any clicked note
+      // 1. Play the note sound (Immediate feedback)
       if (abcElem.midiPitches && abcElem.midiPitches.length > 0) {
-        // Ensure audio context is active (required for web audio)
         synth.activeAudioContext()?.resume();
-
-        // Calculate tempo from visualObj for accurate note duration
         const tempo = this.visualObj?.getBpm() || 120;
         const millisecondsPerMeasure = (60000 * this.beatsPerMeasure) / tempo;
-
-        // Play the clicked note with synth.playEvent
-        synth.playEvent(
-          abcElem.midiPitches,
-          abcElem.midiGraceNotePitches,
-          millisecondsPerMeasure
-        ).then(() => {
-          console.log('Note played:', abcElem.midiPitches);
-        }).catch((error: any) => {
-          console.warn('Error playing note:', error);
-        });
+        synth.playEvent(abcElem.midiPitches, abcElem.midiGraceNotePitches, millisecondsPerMeasure);
       }
 
-      // Handle note selection for playback (only when not playing)
-      if (!this.isPlaying) {
-
-        // Get timing information from the visualObj for playback
-        if (!this.visualObj) {
-          console.warn('No visualObj available');
-          return;
-        }
-
-        // Access noteTimings from the TimingCallbacks instance
-        if (!this.timingCallbacks || !this.timingCallbacks.noteTimings) {
-          console.warn('No timing information available');
-          return;
-        }
-
-        // Find the timing info for the clicked element using startChar
+      // 2. Find the timing for the clicked note
+      if (this.timingCallbacks && this.timingCallbacks.noteTimings) {
         const noteTiming = this.timingCallbacks.noteTimings.find(
           timing => timing && timing.startChar === abcElem.startChar
         );
 
-        console.log('Found timing:', noteTiming);
-
         if (noteTiming && noteTiming.milliseconds != null) {
-          this.selectedNoteStartTime = noteTiming.milliseconds;
+          const totalTimeMs = (this.visualObj?.getTotalTime() || 0) * 1000;
+          const seekPos = noteTiming.milliseconds / totalTimeMs;
 
-          // Visual feedback: highlight the selected note
-          const previousSelected = this.el.querySelector('.abcjs-selected-note');
-          if (previousSelected) {
-            previousSelected.classList.remove('abcjs-selected-note');
+          if (this.isPlaying) {
+            // JUMP IMMEDIATELY if already playing
+            this.midiBuffer.seek(seekPos);
+            this.timingCallbacks.setProgress(seekPos);
+          } else {
+            // SAVE POSITION for next play click
+            this.selectedNoteStartTime = noteTiming.milliseconds;
+
+            // Visual feedback: clear old selection and add to new one
+            this.el.querySelectorAll('.abcjs-selected-note').forEach(e => e.classList.remove('abcjs-selected-note'));
+            if (abcElem.abselem?.elemset) {
+              abcElem.abselem.elemset.forEach((elem: SVGElement) => elem.classList.add('abcjs-selected-note'));
+            }
           }
-
-          if (abcElem.abselem && abcElem.abselem.elemset) {
-            abcElem.abselem.elemset.forEach((elem: SVGElement) => {
-              elem.classList.add('abcjs-selected-note');
-            });
-          }
-
-          console.log(`Note selected at ${this.selectedNoteStartTime}ms for playback`);
-        } else {
-          console.warn('Could not find timing for startChar:', abcElem.startChar);
         }
+      }
+
+      // 3. Highlight in the text editor (Keep your existing logic)
+      if (abcElem.startChar !== undefined && abcElem.startChar >= 0) {
+        const app = (window as any).app as App;
+        const view = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE)[0]?.view as AbcEditorView;
+        if (view) view.highlightRange(abcElem.startChar, abcElem.endChar);
       }
     }
   };
