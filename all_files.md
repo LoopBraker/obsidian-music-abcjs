@@ -1,3 +1,374 @@
+# Table of Contents
+
+1. [main.ts](#main.ts)
+2. [note_highlighter.ts](#note_highlighter.ts)
+3. [playback_element.ts](#playback_element.ts)
+
+---
+
+## main.ts
+ts
+import { MarkdownPostProcessorContext, Plugin, MarkdownView } from 'obsidian';
+import { PLAYBACK_CONTROLS_ID } from './cfg';
+import { PlaybackElement } from './playback_element';
+import { AbcEditorView, ABC_EDITOR_VIEW_TYPE } from './editor_view';
+import { globalAbcState } from './global_state';
+import { MusicSettingTab, MusicPluginSettings, DEFAULT_SETTINGS } from './settings';
+
+export default class MusicPlugin extends Plugin {
+	settings: MusicPluginSettings;
+
+	async onload() {
+		await this.loadSettings();
+
+		// Register the ABC editor view
+		this.registerView(
+			ABC_EDITOR_VIEW_TYPE,
+			(leaf) => new AbcEditorView(leaf)
+		);
+
+		this.registerMarkdownCodeBlockProcessor('abc', this.codeProcessor);
+		this.registerMarkdownCodeBlockProcessor('music-abc', this.codeProcessor);
+
+		// Add settings tab
+		this.addSettingTab(new MusicSettingTab(this.app, this));
+
+		// Listen for theme changes in Obsidian
+		this.registerEvent(
+			this.app.workspace.on('css-change', () => {
+				this.refreshEditorTheme();
+			})
+		);
+
+		// 2. NEW: Handle Focus Changes (Obscure/Unobscure)
+		// 1. AUTO-CLOSE: Close editor if note is closed
+		this.registerEvent(
+			this.app.workspace.on('layout-change', () => {
+				const leaves = this.app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+				if (leaves.length === 0) return;
+
+				const abcLeaf = leaves[0];
+				const view = abcLeaf.view as AbcEditorView;
+
+				if (view && view.associatedFilePath) {
+					const isFileStillOpen = this.app.workspace.getLeavesOfType('markdown').some(leaf => {
+						const mdView = leaf.view as MarkdownView;
+						return mdView.file && mdView.file.path === view.associatedFilePath;
+					});
+
+					if (!isFileStillOpen) {
+						abcLeaf.detach();
+					}
+				}
+			})
+		);
+
+		// 2. LOCK/UNLOCK: Handle Focus Changes
+		this.registerEvent(
+			this.app.workspace.on('layout-change', () => {
+				const leaves = this.app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+				if (leaves.length === 0) return;
+
+				const abcLeaf = leaves[0];
+				const view = abcLeaf.view as AbcEditorView;
+
+				if (view && view.associatedFilePath) {
+					const isFileStillOpen = this.app.workspace.getLeavesOfType('markdown').some(leaf => {
+						const mdView = leaf.view as MarkdownView;
+						return mdView.file && mdView.file.path === view.associatedFilePath;
+					});
+
+					if (!isFileStillOpen) {
+						abcLeaf.detach();
+					}
+				}
+			})
+		);
+
+		// 2. LOCK/UNLOCK: Handle Focus Changes
+		this.registerEvent(
+			this.app.workspace.on('active-leaf-change', (leaf) => {
+				// Find our editor view
+				const abcLeaves = this.app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+				if (abcLeaves.length === 0) return;
+
+				const abcLeaf = abcLeaves[0];
+				const view = abcLeaf.view as AbcEditorView;
+
+				if (!view.associatedFilePath) return;
+
+				// Update strict mode from settings
+				view.updateOverlayMode(this.settings.restrictEditorToActiveNote);
+
+				// Case A: User clicked Editor. 
+				// The view handles the click logic (click-to-dismiss) if restrictMode is false.
+				if (leaf && leaf.view.getViewType() === ABC_EDITOR_VIEW_TYPE) {
+					return;
+				}
+
+				// Case B: User clicked a Markdown file.
+				if (leaf && leaf.view instanceof MarkdownView) {
+					const mdView = leaf.view as MarkdownView;
+					if (mdView.file && mdView.file.path === view.associatedFilePath) {
+						view.setObscured(false); // UNLOCK
+					} else {
+						view.setObscured(true);  // LOCK (Show Overlay)
+					}
+					return;
+				}
+
+				// Case C: Other (Settings, Graph) -> Lock
+				if (leaf) {
+					view.setObscured(true);
+				}
+			})
+		);
+
+		// Although unused by us, a valid DOM element is needed to create a SynthController
+		const unusedPlaybackControls = document.createElement('aside');
+		unusedPlaybackControls.id = PLAYBACK_CONTROLS_ID;
+		unusedPlaybackControls.style.display = 'none';
+		document.body.appendChild(unusedPlaybackControls);
+
+		// Close any leftover ABC editor views from previous session
+		// This ensures a clean state when Obsidian loads
+		this.app.workspace.onLayoutReady(() => {
+			// Reset global state
+			globalAbcState.reset();
+		});
+
+		// Register commands
+		this.addCommand({
+			id: 'abc-transpose-up',
+			name: 'ABC: Raise pitch (prefer sharps)',
+			checkCallback: (checking: boolean) => {
+				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+				if (view) {
+					if (!checking) {
+						view.transposeSelection(1, false); // false = prefer sharps
+					}
+					return true;
+				}
+				return false;
+			}
+		});
+
+		this.addCommand({
+			id: 'abc-transpose-up-flat',
+			name: 'ABC: Raise pitch (prefer flats)',
+			checkCallback: (checking: boolean) => {
+				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+				if (view) {
+					if (!checking) {
+						view.transposeSelection(1, true); // true = prefer flats
+					}
+					return true;
+				}
+				return false;
+			}
+		});
+
+		this.addCommand({
+			id: 'abc-transpose-down',
+			name: 'ABC: Lower pitch (prefer flats)',
+			checkCallback: (checking: boolean) => {
+				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+				if (view) {
+					if (!checking) {
+						view.transposeSelection(-1, true); // true = prefer flats
+					}
+					return true;
+				}
+				return false;
+			}
+		});
+
+		this.addCommand({
+			id: 'abc-transpose-down-sharp',
+			name: 'ABC: Lower pitch (prefer sharps)',
+			checkCallback: (checking: boolean) => {
+				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+				if (view) {
+					if (!checking) {
+						view.transposeSelection(-1, false); // false = prefer sharps
+					}
+					return true;
+				}
+				return false;
+			}
+		});
+
+		this.addCommand({
+			id: 'abc-transpose-octave-up',
+			name: 'ABC: Raise pitch (octave)',
+			checkCallback: (checking: boolean) => {
+				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+				if (view) {
+					if (!checking) {
+						view.transposeSelection(12);
+					}
+					return true;
+				}
+				return false;
+			}
+		});
+
+		this.addCommand({
+			id: 'abc-transpose-octave-down',
+			name: 'ABC: Lower pitch (octave)',
+			checkCallback: (checking: boolean) => {
+				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+				if (view) {
+					if (!checking) {
+						view.transposeSelection(-12);
+					}
+					return true;
+				}
+				return false;
+			}
+		});
+
+		// Register scale degree commands (1-7)
+		for (let i = 1; i <= 7; i++) {
+			this.addCommand({
+				id: `abc-set-degree-${i}`,
+				name: `ABC: Set pitch to degree ${i}`,
+				checkCallback: (checking: boolean) => {
+					const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+					if (view) {
+						if (!checking) {
+							view.setSelectionToDegree(i);
+						}
+						return true;
+					}
+					return false;
+				}
+			});
+		}
+
+		// Save Command
+		this.addCommand({
+			id: 'abc-save-editor',
+			name: 'ABC: Save changes',
+			checkCallback: (checking: boolean) => {
+				const view = this.app.workspace.getActiveViewOfType(AbcEditorView);
+				if (view) {
+					if (!checking) {
+						view.save();
+					}
+					return true;
+				}
+				return false;
+			}
+		});
+	}
+
+	onunload() {
+		const controls = document.getElementById(PLAYBACK_CONTROLS_ID);
+		if (controls) controls.remove();
+
+		// It is safe to detach here IF editor_view.ts is fixed (see below)
+		this.app.workspace.detachLeavesOfType(ABC_EDITOR_VIEW_TYPE);
+	}
+
+	async loadSettings() {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+	}
+
+	async saveSettings() {
+		await this.saveData(this.settings);
+	}
+
+	refreshEditorTheme() {
+		// Find all open ABC editor views and refresh their themes
+		this.app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE).forEach(leaf => {
+			const view = leaf.view;
+			if (view instanceof AbcEditorView) {
+				view.refreshTheme();
+			}
+		});
+	}
+
+	refreshVisualizer() {
+		this.app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE).forEach(leaf => {
+			const view = leaf.view;
+			if (view instanceof AbcEditorView) {
+				view.refreshVisualizer();
+			}
+		});
+	}
+
+	refreshEditorLocking() {
+		// Update the mode for all active editors immediately
+		const strict = this.settings.restrictEditorToActiveNote;
+		this.app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE).forEach(leaf => {
+			(leaf.view as AbcEditorView).updateOverlayMode(strict);
+		});
+
+		// Trigger a layout check to apply current obscuration state
+		const activeLeaf = this.app.workspace.getLeaf(false);
+		this.app.workspace.trigger('active-leaf-change', activeLeaf);
+	}
+
+	async codeProcessor(source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) {
+		ctx.addChild(new PlaybackElement(el, source, ctx));
+	}
+}
+
+
+## note_highlighter.ts
+ts
+import { CursorControl, NoteTimingEvent } from 'abcjs';
+
+/**
+ * Monitors playback and provides event hooks.
+ * 
+ * Used to:
+ * 1. indicate song start/end
+ * 2. highlight the currently playing note
+ * 
+ * https://paulrosen.github.io/abcjs/audio/synthesized-sound.html#cursorcontrol-object
+ */
+export class NoteHighlighter implements CursorControl {
+  beatSubdivisions = 2;
+
+  constructor(private readonly el: HTMLElement) { }
+
+  onStart = () => togglePlayingHighlight(this.el)(true);
+  onFinished = () => rmAllHighlights(this.el)();
+
+  // On every note event, clear highlights and redraw with current note highlighted.
+  onEvent(event: NoteTimingEvent) {
+    // this was the second part of a tie across a measure line. Just ignore it.
+    if (event.measureStart && event.left === null) return;
+    // Select the currently selected notes.
+    rmNoteHighlights(this.el)();
+    event.elements.flat().forEach(el => el.classList.add("abcjs-highlight"));
+  }
+}
+
+
+
+// -------------------------------------------------------------- 2nd order fn library: Visualization
+// outline region when playing
+export const togglePlayingHighlight = (el: HTMLElement) => (is: boolean) => el.parentElement.classList.toggle('is-playing', is);
+
+// clear all the note highlights
+export const rmNoteHighlights = (parentEl: HTMLElement) => () => {
+  const selected = Array.from(parentEl.querySelectorAll(".abcjs-highlight"));
+  selected.forEach(el => el.classList.remove("abcjs-highlight"));
+};
+
+// remove both playing and note highlights
+export const rmAllHighlights = (parentEl: HTMLElement) => () => {
+  togglePlayingHighlight(parentEl)(false);
+  rmNoteHighlights(parentEl)();
+}
+
+
+
+## playback_element.ts
+ts
 import { MidiBuffer, TuneObject, renderAbc, synth, SynthOptions, TimingCallbacks, AnimationOptions } from 'abcjs';
 import { MarkdownRenderChild, MarkdownPostProcessorContext, App } from 'obsidian';
 import { AUDIO_PARAMS, DEFAULT_OPTIONS, OPTIONS_REGEX, PLAYBACK_CONTROLS_ID, getSynthInitOptions } from './cfg';
@@ -43,15 +414,15 @@ export class PlaybackElement extends MarkdownRenderChild {
     const { userOptions, source } = this.parseOptionsAndSource();
     this.noteEditor = new NoteEditor(source, this.ctx, this.el);
     this.draggingEnabled = source.includes('%%allowDrag');
-
+    
     this.sheetWrapper = document.createElement('div');
     this.sheetWrapper.addClass('abcjs-sheet-wrapper');
-
+    
     this.addPlaybackButtons();
     this.el.appendChild(this.sheetWrapper);
-
-    const options = {
-      ...DEFAULT_OPTIONS,
+    
+    const options = { 
+      ...DEFAULT_OPTIONS, 
       ...userOptions,
       dragging: this.draggingEnabled,
       add_classes: true,
@@ -59,23 +430,23 @@ export class PlaybackElement extends MarkdownRenderChild {
     };
     const renderResp = renderAbc(this.sheetWrapper, source, options);
     this.visualObj = renderResp[0];
-
+    
     if (this.visualObj) {
       this.visualObj.setTiming();
       this.beatsPerMeasure = this.visualObj.getBeatsPerMeasure();
       this.totalBeats = this.visualObj.getTotalBeats();
       this.totalMeasures = Math.ceil(this.totalBeats / this.beatsPerMeasure);
     }
-
+    
     this.addDraggingAndLoopToggles();
     this.enableAudioPlayback(this.visualObj);
     this.updateEditorCallbacks();
-
+    
     // Check if we need to reopen the editor after a file write (reload)
     const preserve = globalAbcState.getPreserveEditor();
     const sourcePath = (this.ctx as any)?.sourcePath;
     const lineStart = this.ctx?.getSectionInfo(this.el)?.lineStart;
-
+    
     if (preserve && preserve.path === sourcePath && preserve.lineStart === lineStart) {
       globalAbcState.clearPreserveEditor();
       this.openEditorProgrammatically(preserve.source);
@@ -86,55 +457,55 @@ export class PlaybackElement extends MarkdownRenderChild {
     this.abortController.abort();
     this.timingCallbacks?.stop();
     this.midiBuffer.stop();
-
+    
     if (this.saveTimeout) {
       clearTimeout(this.saveTimeout);
       this.saveTimeout = null;
     }
-
+    
     const app = (window as any).app as App;
     const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
-
+    
     // Clear this block from global state
     globalAbcState.clearBlock(this);
-
+    
     // CRITICAL: Check if we are reloading because of a save we initiated
     const preserve = globalAbcState.getPreserveEditor();
     const sourcePath = (this.ctx as any)?.sourcePath;
     const lineStart = this.ctx?.getSectionInfo(this.el)?.lineStart;
-
+    
     // Only close the editor if this is NOT a "preserve" reload
     const isPreserveForThis = preserve && preserve.path === sourcePath && preserve.lineStart === lineStart;
-
+    
     if (!isPreserveForThis && leaves.length > 0 && globalAbcState.isActiveEditor(this)) {
-      leaves[0].detach();
+       leaves[0].detach();
     }
   }
 
   // --- HELPER TO HANDLE AUTO-SAVE WITHOUT CLOSING EDITOR ---
   private async saveAndPreserve(newSource: string) {
-    const sourcePath = (this.ctx as any)?.sourcePath;
-    const sectionInfo = this.ctx?.getSectionInfo(this.el);
-    const lineStart = sectionInfo?.lineStart ?? -1;
+      const sourcePath = (this.ctx as any)?.sourcePath;
+      const sectionInfo = this.ctx?.getSectionInfo(this.el);
+      const lineStart = sectionInfo?.lineStart ?? -1;
 
-    // 1. Set the Flag: "I am about to reload the plugin, please keep editor open"
-    globalAbcState.setPreserveEditor({
-      path: sourcePath,
-      lineStart: lineStart,
-      source: newSource
-    });
+      // 1. Set the Flag: "I am about to reload the plugin, please keep editor open"
+      globalAbcState.setPreserveEditor({
+          path: sourcePath,
+          lineStart: lineStart,
+          source: newSource
+      });
 
-    // 2. Update Internal State
-    this.noteEditor.setSource(newSource);
+      // 2. Update Internal State
+      this.noteEditor.setSource(newSource);
 
-    // 3. Write to File (Triggers Reload)
-    await this.updateFileWithSource(newSource);
+      // 3. Write to File (Triggers Reload)
+      await this.updateFileWithSource(newSource);
   }
 
   private readonly toggleEditor = async () => {
     const app = (window as any).app as App;
     const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
-
+    
     if (leaves.length > 0) {
       // Closing manually -> Just save and close
       const currentSource = this.noteEditor.getSource();
@@ -149,17 +520,17 @@ export class PlaybackElement extends MarkdownRenderChild {
         this.draggingEnabled = false;
         globalAbcState.setActiveDragging(null);
       }
-
+      
       globalAbcState.setActiveEditor(this);
-
+      
       const leaf = app.workspace.getRightLeaf(false);
       await leaf.setViewState({ type: ABC_EDITOR_VIEW_TYPE, active: true });
-
+      
       const leaves2 = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
       if (leaves2.length > 0) {
         const view = leaves2[0].view as AbcEditorView;
         let sourceToSet = this.noteEditor.getSource();
-
+        
         view.setContent(
           sourceToSet,
           async (newSource: string) => {
@@ -169,13 +540,13 @@ export class PlaybackElement extends MarkdownRenderChild {
           },
           async (newSource: string) => {
             // onSave (Auto-Save from Editor)
-            await this.saveAndPreserve(newSource);
+            await this.saveAndPreserve(newSource); 
           },
           (startChar: number, endChar: number) => {
             this.highlightNotesInRange(startChar, endChar);
           }
         );
-
+        
         app.workspace.revealLeaf(leaves2[0]);
         this.editorButton.style.backgroundColor = 'var(--interactive-accent)';
         this.editorButton.style.color = 'var(--text-on-accent)';
@@ -186,7 +557,7 @@ export class PlaybackElement extends MarkdownRenderChild {
   private updateEditorCallbacks(): void {
     const app = (window as any).app as App;
     const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
-
+    
     if (leaves.length > 0 && globalAbcState.isActiveEditor(this)) {
       const view = leaves[0].view as AbcEditorView;
       // Reattach callbacks to the existing view
@@ -196,8 +567,8 @@ export class PlaybackElement extends MarkdownRenderChild {
           this.reRender();
         },
         async (newSource: string) => {
-          // onSave (Auto-Save from Editor - connected to NEW block instance)
-          await this.saveAndPreserve(newSource);
+            // onSave (Auto-Save from Editor - connected to NEW block instance)
+            await this.saveAndPreserve(newSource);
         },
         (startChar: number, endChar: number) => {
           this.highlightNotesInRange(startChar, endChar);
@@ -257,25 +628,12 @@ export class PlaybackElement extends MarkdownRenderChild {
     // Define the animation options with callbacks
     const animationOptions: AnimationOptions = {
       eventCallback: (event: any) => {
-        if (!event) {
-          this.isPlaying = false;
-          this.playPauseButton.innerHTML = '▶';
-          this.playPauseButton.setAttribute('aria-label', 'Play');
-          togglePlayingHighlight(this.el)(false);
-
-          // Clear any remaining note highlights
-          const selected = Array.from(this.el.querySelectorAll(".abcjs-highlight"));
-          selected.forEach(el => el.classList.remove("abcjs-highlight"));
-          return;
-        }
-
-        // 2. Existing logic for highlighting notes
-        if (event.measureStart && event.left === null) return undefined;
-
+        if (event && event.measureStart && event.left === null) return undefined;
+        
         const selected = Array.from(this.el.querySelectorAll(".abcjs-highlight"));
         selected.forEach(el => el.classList.remove("abcjs-highlight"));
-
-        if (event.elements) {
+        
+        if (event && event.elements) {
           event.elements.flat().forEach((el: Element) => el.classList.add("abcjs-highlight"));
         }
         return undefined;
@@ -283,38 +641,38 @@ export class PlaybackElement extends MarkdownRenderChild {
       beatCallback: (beatNumber: number, totalBeats: number, totalTime: number) => {
         // Check if loop is enabled and we need to loop back
         if (!this.loopEnabled || !this.loopStartInput || !this.loopEndInput) return;
-
+        
         let loopStart = parseInt(this.loopStartInput.value);
         const loopEnd = parseInt(this.loopEndInput.value);
-
+        
         if (isNaN(loopStart) || isNaN(loopEnd) || loopStart < 1 || loopEnd < loopStart) return;
-
+        
         // Subtract 1 from user's LS input
         loopStart = loopStart - 1;
-
+        
         // Adjust loop values: user inputs measure numbers, we need to subtract 1
         // So if user wants to loop measures 2-3, we calculate as if they entered 1-2
         const adjustedLoopStart = loopStart - 1;
         const adjustedLoopEnd = loopEnd - 1;
-
+        
         // Calculate the beat number for loop end
         const loopEndBeat = (adjustedLoopEnd + 1) * this.beatsPerMeasure;
-
+        
         // If we've reached the end of the LE measure, jump back to loop start
         if (beatNumber >= loopEndBeat) {
           const totalTimeMs = (this.visualObj?.getTotalTime() || 0) * 1000;
-
+          
           if (totalTimeMs > 0 && this.timingCallbacks && this.timingCallbacks.noteTimings) {
             // Find the timing for the first note/event in the loop start measure
             // Use the original loopStart (user's measure number)
             const startTiming = this.timingCallbacks.noteTimings.find(
               timing => timing.measureStart && timing.measureNumber === loopStart
             );
-
+            
             if (startTiming) {
               const startPosition = startTiming.milliseconds / totalTimeMs;
               console.log(`Looping: beat ${beatNumber} -> measure ${loopStart} (${startTiming.milliseconds}ms, ${(startPosition * 100).toFixed(1)}%)`);
-
+              
               this.midiBuffer.seek(startPosition);
               this.timingCallbacks.setProgress(startPosition);
             }
@@ -370,15 +728,15 @@ export class PlaybackElement extends MarkdownRenderChild {
     this.editorButton.innerHTML = '✏️';
     this.editorButton.setAttribute('aria-label', 'Editor');
     this.editorButton.addEventListener('click', this.toggleEditor);
-
+    
     // Update editor button state based on whether editor is open
     this.updateEditorButtonState();
   }
-
+  
   private updateEditorButtonState(): void {
     // Only highlight the button if THIS block has the editor open
     const isThisBlockActive = globalAbcState.isActiveEditor(this);
-
+    
     if (isThisBlockActive && this.editorButton) {
       this.editorButton.style.backgroundColor = 'var(--interactive-accent)';
       this.editorButton.style.color = 'var(--text-on-accent)';
@@ -387,13 +745,13 @@ export class PlaybackElement extends MarkdownRenderChild {
       this.editorButton.style.color = '';
     }
   }
-
+  
 
 
   private addDraggingAndLoopToggles() {
     // Create wrapper container for all bottom controls
     const bottomControlsWrapper = this.el.createDiv({ cls: 'abcjs-bottom-controls-wrapper' });
-
+    
     // Dragging controls container
     const draggingContainer = bottomControlsWrapper.createDiv({ cls: 'abcjs-bottom-controls' });
     const dragContainer = draggingContainer.createDiv({ cls: 'control-group' });
@@ -401,25 +759,25 @@ export class PlaybackElement extends MarkdownRenderChild {
     this.draggingCheckbox.id = `drag-toggle-${Math.random().toString(36).substr(2, 9)}`;
     this.draggingCheckbox.checked = this.draggingEnabled;
     this.draggingCheckbox.addEventListener('change', () => this.toggleDragging(true));
-
+    
     const dragLabel = dragContainer.createEl('label');
     dragLabel.setAttribute('for', this.draggingCheckbox.id);
     dragLabel.setText('Dragging');
-
+    
     // Loop controls container (separate box)
     const loopContainer = bottomControlsWrapper.createDiv({ cls: 'abcjs-bottom-controls' });
-
+    
     // Loop checkbox
     const loopCheckboxContainer = loopContainer.createDiv({ cls: 'control-group' });
     this.loopCheckbox = loopCheckboxContainer.createEl('input', { type: 'checkbox' });
     this.loopCheckbox.id = `loop-toggle-${Math.random().toString(36).substr(2, 9)}`;
     this.loopCheckbox.checked = this.loopEnabled;
     this.loopCheckbox.addEventListener('change', this.toggleLoop);
-
+    
     const loopLabel = loopCheckboxContainer.createEl('label');
     loopLabel.setAttribute('for', this.loopCheckbox.id);
     loopLabel.setText('Loop');
-
+    
     // Loop Start input
     const loopStartContainer = loopContainer.createDiv({ cls: 'control-group' });
     const lsLabel = loopStartContainer.createEl('label');
@@ -431,7 +789,7 @@ export class PlaybackElement extends MarkdownRenderChild {
     }
     this.loopStartInput.setAttribute('placeholder', '1');
     this.loopStartInput.style.width = '50px';
-
+    
     // Loop End input
     const loopEndContainer = loopContainer.createDiv({ cls: 'control-group' });
     const leLabel = loopEndContainer.createEl('label');
@@ -452,7 +810,7 @@ export class PlaybackElement extends MarkdownRenderChild {
 
   private highlightNotesInRange(startChar: number, endChar: number): void {
     console.log('highlightNotesInRange called:', startChar, endChar);
-
+    
     // Clear previous highlights
     const previousHighlights = this.el.querySelectorAll('.abcjs-editor-selected');
     previousHighlights.forEach(el => el.classList.remove('abcjs-editor-selected'));
@@ -464,7 +822,7 @@ export class PlaybackElement extends MarkdownRenderChild {
 
     let foundElements = 0;
     let highlightedElements = 0;
-
+    
     // Iterate through visualObj to find matching elements
     for (const line of this.visualObj.lines) {
       for (const staff of line.staff) {
@@ -496,24 +854,24 @@ export class PlaybackElement extends MarkdownRenderChild {
 
   private readonly toggleDragging = async (saveToFile: boolean = true) => {
     this.draggingEnabled = this.draggingCheckbox.checked;
-
+    
     // NEW: If enabling dragging, close the editor if it's open
     if (this.draggingEnabled) {
       // Register this block as having dragging enabled
       // This will disable dragging on any other block
       globalAbcState.setActiveDragging(this);
-
+      
       const app = (window as any).app as App;
       const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
-
+      
       if (leaves.length > 0) {
         // Close the editor
         leaves[0].detach();
-
+        
         // Update editor button visual state
         this.editorButton.style.backgroundColor = '';
         this.editorButton.style.color = '';
-
+        
         // Clear from global state
         globalAbcState.setActiveEditor(null);
       }
@@ -521,9 +879,9 @@ export class PlaybackElement extends MarkdownRenderChild {
       // Clear from global state when disabling
       globalAbcState.setActiveDragging(null);
     }
-
+    
     let currentSource = this.noteEditor.getSource();
-
+    
     if (this.draggingEnabled) {
       // Add %%allowDrag directive if not present
       if (!currentSource.includes('%%allowDrag')) {
@@ -542,15 +900,15 @@ export class PlaybackElement extends MarkdownRenderChild {
       // Remove %%allowDrag directive
       currentSource = currentSource.replace(/%%allowDrag\n?/g, '');
     }
-
+    
     // Update the source in noteEditor
     this.noteEditor.setSource(currentSource);
-
+    
     // Only save to file if requested (avoid triggering reload when called from toggleEditor)
     if (saveToFile) {
       await this.updateFileWithSource(currentSource);
     }
-
+    
     this.reRender();
   };
 
@@ -569,22 +927,22 @@ export class PlaybackElement extends MarkdownRenderChild {
       // Start playback components first
       this.midiBuffer.start();
       this.timingCallbacks?.start();
-
+      
       // If a note is selected, seek to that position immediately after starting
       if (this.selectedNoteStartTime !== null && this.visualObj) {
         const totalTimeMs = (this.visualObj.getTotalTime() || 0) * 1000;
-
+        
         if (totalTimeMs > 0) {
           // Calculate position as percentage (0-1)
           const startPosition = this.selectedNoteStartTime / totalTimeMs;
-
+          
           console.log(`Seeking to ${this.selectedNoteStartTime}ms (${(startPosition * 100).toFixed(1)}% of ${totalTimeMs}ms)`);
-
+          
           // Seek both audio and visual
           this.midiBuffer.seek(startPosition);
           this.timingCallbacks?.setProgress(startPosition);
         }
-
+        
         // Clear the selection after starting
         this.selectedNoteStartTime = null;
         const previousSelected = this.el.querySelector('.abcjs-selected-note');
@@ -592,7 +950,7 @@ export class PlaybackElement extends MarkdownRenderChild {
           previousSelected.classList.remove('abcjs-selected-note');
         }
       }
-
+      
       this.playPauseButton.innerHTML = '❚❚';
       this.playPauseButton.setAttribute('aria-label', 'Pause');
       togglePlayingHighlight(this.el)(true);
@@ -608,16 +966,16 @@ export class PlaybackElement extends MarkdownRenderChild {
     if (previousSelected) {
       previousSelected.classList.remove('abcjs-selected-note');
     }
-
+    
     this.timingCallbacks?.stop();
     this.midiBuffer.stop();
     // After stopping, we can immediately start again for a seamless restart
     if (this.isPlaying) {
-      this.timingCallbacks?.start();
-      this.midiBuffer.start();
+        this.timingCallbacks?.start();
+        this.midiBuffer.start();
     } else {
-      // If it was paused, just reset the cursor to the beginning
-      this.timingCallbacks?.reset();
+        // If it was paused, just reset the cursor to the beginning
+        this.timingCallbacks?.reset();
     }
   };
 
@@ -625,25 +983,25 @@ export class PlaybackElement extends MarkdownRenderChild {
     // If dragging is enabled and drag occurred, handle note dragging
     if (this.draggingEnabled && drag && drag.step !== 0) {
       const updatedSource = await this.noteEditor.handleNoteDrag(abcElem, drag);
-
+      
       if (updatedSource) {
         // Re-render with the updated source
         this.reRender();
       }
       return;
     }
-
+    
     // Handle note/element clicks
     if (abcElem && (abcElem.el_type === 'note' || abcElem.el_type === 'rest')) {
       console.log('Clicked element:', abcElem.el_type, 'at startChar:', abcElem.startChar, 'endChar:', abcElem.endChar);
-
+      
       // ALWAYS highlight in editor if open (regardless of playing state)
       // Check for valid character positions (abcjs sometimes returns -1 for elements without source position)
       if (abcElem.startChar !== undefined && abcElem.startChar >= 0 && abcElem.endChar !== undefined) {
         const app = (window as any).app as App;
         const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
         console.log('Found editor leaves:', leaves.length);
-
+        
         if (leaves.length > 0) {
           const view = leaves[0].view as AbcEditorView;
           console.log('Editor view found, calling highlightRange');
@@ -660,17 +1018,17 @@ export class PlaybackElement extends MarkdownRenderChild {
           endDefined: abcElem.endChar !== undefined
         });
       }
-
+      
       // NEW FEATURE: Play the note sound when clicked (even when paused)
       // This provides immediate audio feedback for any clicked note
       if (abcElem.midiPitches && abcElem.midiPitches.length > 0) {
         // Ensure audio context is active (required for web audio)
         synth.activeAudioContext()?.resume();
-
+        
         // Calculate tempo from visualObj for accurate note duration
         const tempo = this.visualObj?.getBpm() || 120;
         const millisecondsPerMeasure = (60000 * this.beatsPerMeasure) / tempo;
-
+        
         // Play the clicked note with synth.playEvent
         synth.playEvent(
           abcElem.midiPitches,
@@ -682,44 +1040,44 @@ export class PlaybackElement extends MarkdownRenderChild {
           console.warn('Error playing note:', error);
         });
       }
-
+      
       // Handle note selection for playback (only when not playing)
       if (!this.isPlaying) {
-
+        
         // Get timing information from the visualObj for playback
         if (!this.visualObj) {
           console.warn('No visualObj available');
           return;
         }
-
+        
         // Access noteTimings from the TimingCallbacks instance
         if (!this.timingCallbacks || !this.timingCallbacks.noteTimings) {
           console.warn('No timing information available');
           return;
         }
-
+        
         // Find the timing info for the clicked element using startChar
         const noteTiming = this.timingCallbacks.noteTimings.find(
           timing => timing && timing.startChar === abcElem.startChar
         );
-
+        
         console.log('Found timing:', noteTiming);
-
+        
         if (noteTiming && noteTiming.milliseconds != null) {
           this.selectedNoteStartTime = noteTiming.milliseconds;
-
+          
           // Visual feedback: highlight the selected note
           const previousSelected = this.el.querySelector('.abcjs-selected-note');
           if (previousSelected) {
             previousSelected.classList.remove('abcjs-selected-note');
           }
-
+          
           if (abcElem.abselem && abcElem.abselem.elemset) {
             abcElem.abselem.elemset.forEach((elem: SVGElement) => {
               elem.classList.add('abcjs-selected-note');
             });
           }
-
+          
           console.log(`Note selected at ${this.selectedNoteStartTime}ms for playback`);
         } else {
           console.warn('Could not find timing for startChar:', abcElem.startChar);
@@ -730,7 +1088,7 @@ export class PlaybackElement extends MarkdownRenderChild {
 
   private async updateFileWithSource(abcSource: string) {
     if (!this.ctx) return;
-
+    
     const sectionInfo = this.ctx.getSectionInfo(this.el);
     if (!sectionInfo) return;
 
@@ -745,34 +1103,34 @@ export class PlaybackElement extends MarkdownRenderChild {
     try {
       const content = await app.vault.read(file);
       const lines = content.split('\n');
-
+      
       let codeBlockStart = -1;
       let codeBlockEnd = -1;
-
+      
       for (let i = lineStart; i >= 0; i--) {
         if (lines[i].trim().startsWith('```abc') || lines[i].trim().startsWith('```music-abc')) {
           codeBlockStart = i;
           break;
         }
       }
-
+      
       for (let i = lineStart; i < lines.length; i++) {
         if (i > codeBlockStart && lines[i].trim().startsWith('```')) {
           codeBlockEnd = i;
           break;
         }
       }
-
+      
       if (codeBlockStart >= 0 && codeBlockEnd > codeBlockStart) {
         const beforeBlock = lines.slice(0, codeBlockStart + 1);
         const afterBlock = lines.slice(codeBlockEnd);
-
+        
         const newLines = [
           ...beforeBlock,
           abcSource,
           ...afterBlock
         ];
-
+        
         const newContent = newLines.join('\n');
         await app.vault.modify(file, newContent);
       }
@@ -783,12 +1141,12 @@ export class PlaybackElement extends MarkdownRenderChild {
 
   private reRender() {
     const abcSource = this.noteEditor.getSource();
-
+    
     // Update dragging state based on source
     this.draggingEnabled = abcSource.includes('%%allowDrag');
-
+    
     const { userOptions } = this.parseOptionsAndSource();
-
+    
     // CRITICAL FIX: Reuse the existing wrapper instead of destroying it
     // abcjs handles clearing the innerHTML automatically during render
     // Removing and recreating causes a race condition where the browser hasn't
@@ -797,7 +1155,7 @@ export class PlaybackElement extends MarkdownRenderChild {
       // Only create on first render
       this.sheetWrapper = document.createElement('div');
       this.sheetWrapper.addClass('abcjs-sheet-wrapper');
-
+      
       const buttonsContainer = this.el.querySelector('.abcjs-controls');
       if (buttonsContainer) {
         this.el.insertBefore(this.sheetWrapper, buttonsContainer);
@@ -805,37 +1163,37 @@ export class PlaybackElement extends MarkdownRenderChild {
         this.el.appendChild(this.sheetWrapper);
       }
     }
-
+    
     // Create fresh options with clickListener to force elemset population
     // Use a new object to ensure abcjs doesn't carry over stale state
-    const options = {
-      ...DEFAULT_OPTIONS,
+    const options = { 
+      ...DEFAULT_OPTIONS, 
       ...userOptions,
       dragging: this.draggingEnabled,
       add_classes: true,
       clickListener: this.handleElementClick
     };
-
+    
     // Render into the STABLE container
     // renderAbc will automatically clear the contents of sheetWrapper
     const renderResp = renderAbc(this.sheetWrapper, abcSource, options);
-
+    
     // Restore checkbox state from source
     if (this.draggingCheckbox) {
       this.draggingCheckbox.checked = this.draggingEnabled;
     }
-
+    
     this.visualObj = renderResp[0];
-
+    
     // Re-extract tune metrics and ensure timings are calculated FIRST
     if (this.visualObj) {
       // Ensure timing information is calculated
       this.visualObj.setTiming();
-
+      
       this.beatsPerMeasure = this.visualObj.getBeatsPerMeasure();
       this.totalBeats = this.visualObj.getTotalBeats();
       this.totalMeasures = Math.ceil(this.totalBeats / this.beatsPerMeasure);
-
+      
       // Update loop input max values
       if (this.loopStartInput && this.totalMeasures > 0) {
         this.loopStartInput.setAttribute('max', this.totalMeasures.toString());
@@ -844,46 +1202,34 @@ export class PlaybackElement extends MarkdownRenderChild {
         this.loopEndInput.setAttribute('max', this.totalMeasures.toString());
         this.loopEndInput.setAttribute('placeholder', String(this.totalMeasures));
       }
-
+      
       // Now that visualObj is ready with timing, update editor button and callbacks
       this.updateEditorButtonState();
       this.updateEditorCallbacks();
     }
-
+    
     // Update audio
     if (this.visualObj) {
       const { userOptions } = this.parseOptionsAndSource();
       const audioParamsFromUser: Record<string, any> = {};
       const knownAudioKeys = ['swing', 'chordsOff'];
-
+      
       for (const key of knownAudioKeys) {
         if (userOptions.hasOwnProperty(key)) {
           audioParamsFromUser[key] = userOptions[key];
         }
       }
-
+      
       const finalAudioParams: SynthOptions = { ...AUDIO_PARAMS, ...audioParamsFromUser };
       // Create animation options for the new visual object
       const animationOptions: AnimationOptions = {
         eventCallback: (event: any) => {
-          if (!event) {
-            this.isPlaying = false;
-            this.playPauseButton.innerHTML = '▶';
-            this.playPauseButton.setAttribute('aria-label', 'Play');
-            togglePlayingHighlight(this.el)(false);
-
-            const selected = Array.from(this.el.querySelectorAll(".abcjs-highlight"));
-            selected.forEach(el => el.classList.remove("abcjs-highlight"));
-            return;
-          }
-
-          // 2. Normal highlight logic
-          if (event.measureStart && event.left === null) return undefined;
-
+          if (event && event.measureStart && event.left === null) return undefined;
+          
           const selected = Array.from(this.el.querySelectorAll(".abcjs-highlight"));
           selected.forEach(el => el.classList.remove("abcjs-highlight"));
-
-          if (event.elements) {
+          
+          if (event && event.elements) {
             event.elements.flat().forEach((el: Element) => el.classList.add("abcjs-highlight"));
           }
           return undefined;
@@ -891,38 +1237,38 @@ export class PlaybackElement extends MarkdownRenderChild {
         beatCallback: (beatNumber: number, totalBeats: number, totalTime: number) => {
           // Check if loop is enabled and we need to loop back
           if (!this.loopEnabled || !this.loopStartInput || !this.loopEndInput) return;
-
+          
           let loopStart = parseInt(this.loopStartInput.value);
           const loopEnd = parseInt(this.loopEndInput.value);
-
+          
           if (isNaN(loopStart) || isNaN(loopEnd) || loopStart < 1 || loopEnd < loopStart) return;
-
+          
           // Subtract 1 from user's LS input
           loopStart = loopStart - 1;
-
+          
           // Adjust loop values: user inputs measure numbers, we need to subtract 1
           // So if user wants to loop measures 2-3, we calculate as if they entered 1-2
           const adjustedLoopStart = loopStart - 1;
           const adjustedLoopEnd = loopEnd - 1;
-
+          
           // Calculate the beat number for loop end
           const loopEndBeat = (adjustedLoopEnd + 1) * this.beatsPerMeasure;
-
+          
           // If we've reached the end of the LE measure, jump back to loop start
           if (beatNumber >= loopEndBeat) {
             const totalTimeMs = (this.visualObj?.getTotalTime() || 0) * 1000;
-
+            
             if (totalTimeMs > 0 && this.timingCallbacks && this.timingCallbacks.noteTimings) {
               // Find the timing for the first note/event in the loop start measure
               // Use the original loopStart (user's measure number)
               const startTiming = this.timingCallbacks.noteTimings.find(
                 timing => timing.measureStart && timing.measureNumber === loopStart
               );
-
+              
               if (startTiming) {
                 const startPosition = startTiming.milliseconds / totalTimeMs;
                 console.log(`Looping: beat ${beatNumber} -> measure ${loopStart} (${startTiming.milliseconds}ms, ${(startPosition * 100).toFixed(1)}%)`);
-
+                
                 this.midiBuffer.seek(startPosition);
                 this.timingCallbacks.setProgress(startPosition);
               }
@@ -930,26 +1276,26 @@ export class PlaybackElement extends MarkdownRenderChild {
           }
         }
       };
-
+      
       this.midiBuffer.init({ visualObj: this.visualObj, options: finalAudioParams })
         .then(() => {
-          // Re-initialize timing callbacks with the new visual object
-          this.timingCallbacks = new TimingCallbacks(this.visualObj!, animationOptions);
-          return this.midiBuffer.prime();
+            // Re-initialize timing callbacks with the new visual object
+            this.timingCallbacks = new TimingCallbacks(this.visualObj!, animationOptions);
+            return this.midiBuffer.prime();
         })
         .catch(console.warn.bind(console));
     }
   }
-
+  
   /**
    * Public methods called by global state manager
    */
-
+  
   public async closeEditor(): Promise<void> {
     // Save current editor content to file before closing
     const currentSource = this.noteEditor.getSource();
     await this.updateFileWithSource(currentSource);
-
+    
     // Now close the editor
     this.closeEditorSilently();
   }
@@ -957,49 +1303,49 @@ export class PlaybackElement extends MarkdownRenderChild {
   public closeEditorSilently(): void {
     const app = (window as any).app as App;
     const leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
-
+    
     if (leaves.length > 0) {
       leaves[0].detach();
     }
-
+    
     // Update button visual state
     if (this.editorButton) {
       this.editorButton.style.backgroundColor = '';
       this.editorButton.style.color = '';
     }
   }
-
+  
   public disableDraggingSilently(): void {
     if (!this.draggingEnabled) return;
-
+    
     this.draggingEnabled = false;
-
+    
     if (this.draggingCheckbox) {
       this.draggingCheckbox.checked = false;
     }
-
+    
     let currentSource = this.noteEditor.getSource();
     // Remove %%allowDrag directive
     currentSource = currentSource.replace(/%%allowDrag\n?/g, '');
-
+    
     // Update the source in noteEditor
     this.noteEditor.setSource(currentSource);
-
+    
     // Don't save to file to avoid triggering reload
     // The user's action on another block will handle the save
-
+    
     this.reRender();
   }
-
+  
   private async openEditorProgrammatically(sourceToSet: string): Promise<void> {
     const app = (window as any).app as App;
-
+    
     // Register this block as having the active editor
     globalAbcState.setActiveEditor(this);
-
+    
     // Check if editor is already open
     let leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
-
+    
     if (leaves.length === 0) {
       // Open the editor
       const leaf = app.workspace.getRightLeaf(false);
@@ -1007,10 +1353,10 @@ export class PlaybackElement extends MarkdownRenderChild {
         type: ABC_EDITOR_VIEW_TYPE,
         active: true,
       });
-
+      
       leaves = app.workspace.getLeavesOfType(ABC_EDITOR_VIEW_TYPE);
     }
-
+    
     if (leaves.length > 0) {
       const view = leaves[0].view as AbcEditorView;
       view.setContent(
@@ -1030,10 +1376,10 @@ export class PlaybackElement extends MarkdownRenderChild {
           this.highlightNotesInRange(startChar, endChar);
         }
       );
-
+      
       // Reveal the leaf (bring it to front)
       app.workspace.revealLeaf(leaves[0]);
-
+      
       // Update button visual state
       if (this.editorButton) {
         this.editorButton.style.backgroundColor = 'var(--interactive-accent)';
@@ -1042,3 +1388,5 @@ export class PlaybackElement extends MarkdownRenderChild {
     }
   }
 }
+
+
